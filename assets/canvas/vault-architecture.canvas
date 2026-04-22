@@ -1,0 +1,42 @@
+{
+	"nodes":[
+		{"id":"g003cc33","type":"group","x":-260,"y":-420,"width":1240,"height":860,"color":"4","label":"知识编译层"},
+		{"id":"g005ee55","type":"group","x":-100,"y":360,"width":920,"height":420,"color":"4","label":"知识内容"},
+		{"id":"g001aa11","type":"group","x":-1380,"y":-320,"width":520,"height":620,"color":"3","label":"输入层"},
+		{"id":"g006ff66","type":"group","x":1080,"y":-320,"width":520,"height":620,"color":"6","label":"治理与展示层"},
+		{"id":"g004dd44","type":"group","x":-240,"y":-300,"width":500,"height":560,"color":"5","label":"索引中枢"},
+		{"id":"g002bb22","type":"group","x":-760,"y":-320,"width":430,"height":620,"color":"2","label":"执行层"},
+		{"id":"nraw0001","type":"text","text":"# raw/\n\n事实输入层\n01-articles\n02-papers","x":-1300,"y":-220,"width":260,"height":140,"color":"3"},
+		{"id":"narc0002","type":"text","text":"# raw/09-archive/\n\n已处理资料归档区\nsources 路径统一指向这里","x":-1300,"y":40,"width":260,"height":120,"color":"3"},
+		{"id":"ning0003","type":"text","text":"# ingest skill\n\n编译 raw 到 wiki\n更新 index / log\n需要时补导航层\n完成后归档文件","x":-690,"y":-220,"width":260,"height":180,"color":"2"},
+		{"id":"nqry0004","type":"text","text":"# query skill\n\n先看导航层缩范围\n再用完整注册表补漏\n少量深读相关页面","x":-690,"y":20,"width":260,"height":140,"color":"5"},
+		{"id":"nlnt0005","type":"text","text":"# lint skill\n\n检查死链 / 孤儿页\n检查完整注册表缺失\n不把导航层当注册来源","x":-690,"y":220,"width":260,"height":140,"color":"1"},
+		{"id":"nidx0006","type":"text","text":"# wiki/index.md\n\n全局索引入口\n上层导航，下层注册\n供 ingest / query / lint 使用","x":-160,"y":-220,"width":320,"height":140,"color":"5"},
+		{"id":"nnav0007","type":"text","text":"# 导航层\n\n快速入口\n按主题浏览","x":-160,"y":-20,"width":220,"height":100,"color":"5"},
+		{"id":"nlog0010","type":"text","text":"# wiki/log.md\n\ningest / query / lint / sync\nappend-only 操作日志","x":440,"y":-220,"width":260,"height":120,"color":"4"},
+		{"id":"nagt0011","type":"text","text":"# AGENTS.md\n\n定义 raw / assets / wiki 边界\n规定 index 双层结构\n约束 ingest / query / lint","x":1160,"y":-220,"width":300,"height":180,"color":"6"},
+		{"id":"nass0012","type":"text","text":"# assets/\n\n统一媒体与可视化输出层\n存放图片 / PDF / canvas","x":1160,"y":20,"width":260,"height":120,"color":"6"},
+		{"id":"ncan0013","type":"text","text":"# Canvas 输出\n\nassets/canvas/\n用于架构图与空间化展示","x":1160,"y":220,"width":300,"height":120,"color":"6"},
+		{"id":"nreg0008","type":"text","text":"# 完整注册表\n\nSources\nEntities\nConcepts\nSyntheses","x":40,"y":460,"width":240,"height":100,"color":"5"},
+		{"id":"npag0009","type":"text","text":"# wiki 内容页\n\nsources/\nentities/\nconcepts/\nsyntheses/","x":0,"y":580,"width":320,"height":160,"color":"4"}
+	],
+	"edges":[
+		{"id":"e001a1","fromNode":"nraw0001","fromSide":"right","toNode":"ning0003","toSide":"left","color":"2","label":"编译输入"},
+		{"id":"e002a2","fromNode":"ning0003","fromSide":"right","toNode":"nidx0006","toSide":"left","color":"2","label":"更新索引"},
+		{"id":"e003a3","fromNode":"ning0003","fromSide":"right","toNode":"npag0009","toSide":"left","color":"2","label":"生成页面"},
+		{"id":"e004a4","fromNode":"ning0003","fromSide":"right","toNode":"nlog0010","toSide":"left","color":"2","label":"记录日志"},
+		{"id":"e005a5","fromNode":"ning0003","fromSide":"left","toNode":"narc0002","toSide":"right","color":"3","label":"归档源文件"},
+		{"id":"e006a6","fromNode":"nidx0006","fromSide":"bottom","toNode":"nnav0007","toSide":"top","color":"5","label":"导航层"},
+		{"id":"e007a7","fromNode":"nidx0006","fromSide":"bottom","toNode":"nreg0008","toSide":"top","color":"5","label":"注册层"},
+		{"id":"e008a8","fromNode":"nnav0007","fromSide":"right","toNode":"npag0009","toSide":"top","color":"5","label":"缩小范围"},
+		{"id":"e009a9","fromNode":"nreg0008","fromSide":"bottom","toNode":"npag0009","toSide":"top","color":"5","label":"稳定定位"},
+		{"id":"e010b0","fromNode":"nqry0004","fromSide":"right","toNode":"nidx0006","toSide":"left","color":"5","label":"先读索引"},
+		{"id":"e011b1","fromNode":"nqry0004","fromSide":"right","toNode":"npag0009","toSide":"left","color":"5","label":"少量深读"},
+		{"id":"e012b2","fromNode":"nlnt0005","fromSide":"right","toNode":"nidx0006","toSide":"left","color":"1","label":"校验注册"},
+		{"id":"e013b3","fromNode":"nlnt0005","fromSide":"right","toNode":"npag0009","toSide":"left","color":"1","label":"检查死链/孤儿"},
+		{"id":"e014b4","fromNode":"nagt0011","fromSide":"left","toNode":"ning0003","toSide":"right","color":"6","label":"规范 ingest"},
+		{"id":"e015b5","fromNode":"nagt0011","fromSide":"left","toNode":"nqry0004","toSide":"right","color":"6","label":"规范 query"},
+		{"id":"e016b6","fromNode":"nagt0011","fromSide":"left","toNode":"nlnt0005","toSide":"right","color":"6","label":"规范 lint"},
+		{"id":"e017b7","fromNode":"nass0012","fromSide":"bottom","toNode":"ncan0013","toSide":"top","color":"6","label":"输出位置"}
+	]
+}
