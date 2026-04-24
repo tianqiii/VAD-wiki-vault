@@ -76,7 +76,7 @@
 当被要求执行以下操作时，请遵循核心逻辑（未来可能由专用 Agent Skills 接管）：
 
 - `/ingest <路径>`：读取指定的 `raw/` 文件，将其核心价值提炼并整合到 `wiki/` 目录的相关概念/实体中。必须更新 `wiki/index.md` 的完整注册表与 `wiki/log.md`；如页面具有高复用价值，可再补入导航层。
-- `/query <问题>`：通过读取 `wiki/index.md` 先使用导航层缩小范围，再使用完整注册表定位相关文件，进行少量深度阅读后综合回答，并在回答中必须使用 `[[wikilink]]` 标注引用来源。
+- `/query <问题>`：优先通过 JdocMunch 对 `wiki/sources/`、`wiki/entities/`、`wiki/concepts/`、`wiki/syntheses/` 做 section-level 检索，再对命中的少量段落或页面做深度阅读；只有当 JdocMunch 不可用、命中为空/失真，或用户问题本身是在询问索引结构时，才回退到通过仓库脚本搜索或直接读取 `wiki/index.md`。回答中必须使用 `[[wikilink]]` 标注引用来源。
 - `/lint`：全局扫描 `wiki/` 目录，找出孤岛页面（没有双链）、死链（链接不存在的页面）、未进入 `wiki/index.md` 完整注册表的页面，以及存在逻辑冲突的地方，并向我报告。
 
 # 页面 Frontmatter (YAML) 规范

@@ -15,12 +15,42 @@ user-invocable: true
 - 用户要求“检查知识库状态”或“检查健康”
 
 ## 知识库路径
-- 使用 Glob 工具动态定位当前工作区下的 wiki/ 目录
+- 优先使用本仓库内置脚本：
+
+```bash
+python ".agents/scripts/router.py" lint
+```
+
+- 从 JSON 输出中读取 `wiki_dir` 与 `raw_dir`
+- 若脚本返回 `missing_paths`，先报告缺失路径，不继续 lint
 
 ## 巡检流水线
 
+### 第 0 步：先跑确定性 lint 底座
+
+在生成 LLM 报告前，先执行：
+
+```bash
+python ".agents/scripts/lint.py" --wiki-dir "<wiki_dir>" --raw-dir "<raw_dir>" --json
+```
+
+把脚本输出作为**结构性事实底座**。该脚本会优先检查：
+- frontmatter 完整性
+- 死链
+- 孤儿页面
+- `## 完整注册表` 与实际文件一致性
+- `## 关联连接` 区块缺失
+- `raw/02-papers/` 残留引用
+- `## 知识冲突` 存在情况
+- `index.md` 顶部规模统计与实际目录数量是否一致
+
+LLM 的职责是在此基础上：
+- 汇总为人类可读报告
+- 补充脚本难以判断的语义层问题
+- 给出修复建议
+
 ### 第 1 步：索引一致性检查
-1. 读取 `wiki/index.md` 全部内容
+1. 以脚本结果为准，再按需读取 `wiki/index.md` 复核
 2. 扫描 `wiki/` 下所有 `.md` 文件（排除 index.md 和 log.md）
 3. `wiki/index.md` 采用两层结构：
    - `快速入口`、`按主题浏览` 属于**导航层**，仅用于浏览，不参与注册完整性校验

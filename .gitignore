@@ -1,4 +1,6 @@
 .obsidian/
 **cache
 .sisyphus/
-
+__pycache__/
+Clippings/
+docs/

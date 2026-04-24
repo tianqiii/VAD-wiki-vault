@@ -17,8 +17,8 @@
 		{"id":"nagt0011","type":"text","text":"# AGENTS.md\n\n定义 raw / assets / wiki 边界\n规定 index 双层结构\n约束 ingest / query / lint","x":1160,"y":-220,"width":300,"height":180,"color":"6"},
 		{"id":"nass0012","type":"text","text":"# assets/\n\n统一媒体与可视化输出层\n存放图片 / PDF / canvas","x":1160,"y":20,"width":260,"height":120,"color":"6"},
 		{"id":"ncan0013","type":"text","text":"# Canvas 输出\n\nassets/canvas/\n用于架构图与空间化展示","x":1160,"y":220,"width":300,"height":120,"color":"6"},
-		{"id":"nreg0008","type":"text","text":"# 完整注册表\n\nSources\nEntities\nConcepts\nSyntheses","x":40,"y":460,"width":240,"height":100,"color":"5"},
-		{"id":"npag0009","type":"text","text":"# wiki 内容页\n\nsources/\nentities/\nconcepts/\nsyntheses/","x":0,"y":580,"width":320,"height":160,"color":"4"}
+		{"id":"npag0009","type":"text","text":"# wiki 内容页\n\nsources/\nentities/\nconcepts/\nsyntheses/","x":0,"y":580,"width":320,"height":160,"color":"4"},
+		{"id":"nreg0008","type":"text","text":"# 完整注册表\n\nSources\nEntities\nConcepts\nSyntheses","x":-80,"y":400,"width":240,"height":100,"color":"5"}
 	],
 	"edges":[
 		{"id":"e001a1","fromNode":"nraw0001","fromSide":"right","toNode":"ning0003","toSide":"left","color":"2","label":"编译输入"},

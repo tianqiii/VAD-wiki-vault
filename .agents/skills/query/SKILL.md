@@ -1,100 +1,160 @@
 ---
 name: query
-description: 在本地 Wiki 知识库中回答用户提问。当用户使用 /query 命令、或用自然语言询问关于"我的笔记/历史决定/过往笔记/知识库"中的内容时调用。必须先读取 wiki/index.md：优先使用导航层缩小范围，再用完整注册表定位与补漏，然后只深读少量相关页面，最后以双链引用格式回答。禁止凭模型记忆回答。如果知识库中没有相关内容，必须声明"本地知识库中未找到，以下为通用知识回答"。
+description: 在本地 Wiki 知识库中回答问题。默认走 JdocMunch-first：优先检索 `wiki/sources|entities|concepts|syntheses` 的相关 sections；仅在 JdocMunch 不可用、命中失真/为空、或用户在问索引结构时，才回退到 `search_index.py` 或局部读取 `wiki/index.md`。回答必须使用 `[[wikilink]]` 引用来源。
 user-invocable: true
 ---
 
 # query 技能
 
-## 核心目标
-将用户的提问转化为对本地 Wiki 的深度检索。提取相关页面信息，综合出带有明确引用来源的双链回答。当回答具有高价值时，主动将其固化为知识库的一部分。
+## 目标
+- 基于本地 wiki 回答问题
+- 默认少量取证，不整库铺读
+- 高价值回答可固化为 synthesis
 
-## 触发场景
-- 用户输入 `/query <问题>`
-- 用户用自然语言询问：`"我的笔记里关于 X 是怎么说的"`、`"过去我对 Y 的决策是什么"`、`"查询 Z 相关的知识"`
-- 用户提及 wiki、知识库、笔记、记录等关键词
+## 触发
+- `/query <问题>`
+- 自然语言询问“我的笔记/知识库/记录里关于 X”
 
-## 降级策略
-如果问题属于纯通用知识（如"太阳系有几颗行星"），且 wiki/index.md 中无相关内容：
->本地知识库中未找到相关内容，以下为通用知识回答：[直接回答]
+## 降级
+如果问题是纯通用知识，且本地知识库无相关内容：
+
+> 本地知识库中未找到相关内容，以下为通用知识回答：[直接回答]
 
 ---
 
-## 检索与综合流水线
+## 执行顺序
 
-### 步骤 1：查阅全局索引
-**永远的第一步**：读取 `wiki/index.md`
+### 0. 路径引导
 
-当前 `wiki/index.md` 采用两层结构：
-- **导航层**：`快速入口`、`按主题浏览`，用于快速判断问题属于哪个主题网络
-- **完整注册表**：`Sources / Entities / Concepts / Syntheses`，用于精确定位页面与补漏
-
-检索顺序必须是：
-1. 先看导航层，缩小候选范围
-2. 只有当导航层不足以覆盖问题，或需要补漏/核对时，再看完整注册表
-
-### 步骤 2：深度阅读目标文件
-默认只深读最相关的 **2-4 个页面**，避免把整个知识库一次性读入上下文。
-
-优先级规则：
-- 如果问题是“主题、方向、关系、比较” → 优先读 concept / synthesis 页面
-- 如果问题是“某个具体方法或实体” → 优先读 entity 页面，再按需补其关联 concept / source
-- 如果问题要求论文出处、实验细节、具体证据 → 最后再补读 source 页面
-
-不要因为完整注册表里命中很多页面，就把它们全部展开阅读。只有当当前证据不足以回答问题时，才继续增量补读。
-
-### 步骤 3：综合与回答
-综合信息，回答用户问题。
-
-**双链引用规范**：
-- 每当引用某个 Wiki 页面的信息，在文本中使用 `[[页面名称]]` 标注
-- 整段引用同一页面：段落首尾各引用一次
-- 引用特定原文：使用 Markdown 块引用 `> 引用内容`
-
-### 步骤 4：高价值内容固化
-如果满足以下条件，主动询问用户是否保存为 synthesis：
-- 回答超过 2 个段落
-- 内容具有分析对比性或总结性
-
-询问话术：
->这是一个有价值的总结，是否需要我将其保存到 wiki/syntheses/ 目录？
-
-用户同意后，按照 AGENTS.md 规范创建文件：
-```markdown
----
-title: "页面标题"
-type: synthesis
-tags: []
-sources: []
-last_updated: YYYY-MM-DD
----
-
-# 总结内容
+```bash
+python ".agents/scripts/router.py" query "<用户问题>"
 ```
 
-并在 `wiki/index.md` 的 **完整注册表 → Syntheses** 区块下注册。若该 synthesis 具备高复用价值，可再酌情加入导航层相关入口。
+读取 JSON：`wiki_dir / raw_dir / index_path / log_path`
 
-### 步骤 5：记录操作日志
-无论是否生成 synthesis 页面，查询结束后必须在 `wiki/log.md` 末尾追加：
+### 1. 主路径：JdocMunch-first
+
+#### 主检索语料
+- `wiki/sources/`
+- `wiki/entities/`
+- `wiki/concepts/`
+- `wiki/syntheses/`
+
+#### 非主检索语料
+- `wiki/index.md`
+- `wiki/log.md`
+
+#### 推荐索引名
+- `llm-wiki-sources`
+- `llm-wiki-entities`
+- `llm-wiki-concepts`
+- `llm-wiki-syntheses`
+
+#### 推荐索引参数
+- `incremental: true`
+- `use_ai_summaries: false`
+- `use_embeddings: auto`
+
+#### JdocMunch 调用链
+1. `search_sections`
+2. `get_section`
+3. 必要时 `get_section_context`
+
+#### 问题类型 → 搜索顺序
+| 问题类型 | 搜索顺序 |
+|---|---|
+| 主题 / 关系 / 比较 | `syntheses -> entities -> concepts -> sources` |
+| 具体方法 / 实体 | `entities -> concepts -> sources -> syntheses` |
+| 论文出处 / 元信息 / 实验细节 | `sources -> entities -> syntheses` |
+| 知识库结构问题 | 不走 JdocMunch，直接 fallback |
+
+#### JdocMunch 升降级规则
+- 默认先综合命中的 sections
+- 不要因为一个索引没命中就整页铺读；先换更合适的内容索引
+- 如果结果里 `log.md` 或其他辅助文件靠前，先收窄索引范围，而不是扩大读取范围
+
+### 2. fallback：search-index-first
+
+当出现以下任一情况时回退：
+- JdocMunch 不可用
+- section 命中为空
+- section 命中明显失真
+- 用户问题在问索引结构 / 注册表 / 知识库规模
+
+```bash
+python ".agents/scripts/search_index.py" --index-path "<index_path>" --query "<用户问题>"
+```
+
+规则：
+- 取前 3-5 个候选页
+- 仍不整篇铺读 `index.md`
+- 只有 fallback 也不足时，才局部读取 `wiki/index.md`
+
+### 3. 页面/段落读取规则
+
+- 默认优先读少量 sections
+- 只有证据不足时才升级为整页 Read
+- 整页 Read 默认只读最相关的 **2-4 个页面**
+
+#### 整页 Read 优先级
+- 主题 / 比较 / 关系：`concept / synthesis`
+- 具体方法 / 实体：`entity`，再补 `concept / source`
+- 实验细节 / DOI / 数据集：`source`
+
+---
+
+## 回答规则
+
+### 引用
+- 必须使用 `[[页面名称]]`
+- 同页信息不要过度重复引用
+- 原文摘录用 `> 引用内容`
+
+### 结构
+优先输出：
+- 直接结论
+- 关键依据
+- 必要时补充对比 / 风险 / 例外
+
+---
+
+## 高价值内容固化
+
+满足以下任一情况时，询问是否保存为 synthesis：
+- 回答超过 2 段
+- 具有分析 / 对比 / 总结性
+
+固定话术：
+
+> 这是一个有价值的总结，是否需要我将其保存到 wiki/syntheses/ 目录？
+
+用户同意后：
+- 新建 synthesis
+- 更新 `wiki/index.md`
+- 必要时补导航层
+
+---
+
+## 日志
+
+查询结束后必须追加：
 
 ```markdown
 ## [YYYY-MM-DD] query | <操作简述>
 - **输出**: <引用页面列表或"即时回答未保存">
 ```
 
-格式必须完全遵循 AGENTS.md 中的示例。
-
 ---
 
-## 强制约束
-- **禁止凭记忆回答**：必须先检索知识库
-- **禁止过度引用**：同一页面的信息在段落首尾引用一次即可
-- **禁止静默回答**：知识库无相关内容时必须声明
-- **禁止全库铺读**：必须先导航、后注册、少量深读，避免一次性读取大量无关页面
+## 硬约束
+- 禁止凭记忆回答
+- 禁止静默回答“本地无内容”场景
+- 禁止全库铺读
+- `index.md` 现在是 fallback，不是默认第一跳
 
 ---
 
 ## 关联连接
-- [[wiki/index.md]] — 全局索引入口
+- [[wiki/index.md]] — fallback 元数据入口
 - [[wiki/log.md]] — 操作日志
-- [[AGENTS.md]] — Wiki 架构总规范
+- [[AGENTS.md]] — 全局规范

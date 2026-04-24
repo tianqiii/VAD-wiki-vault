@@ -28,6 +28,26 @@ user-invocable: true
 
 对每个待处理源文件，严格按以下步骤执行：
 
+### 预备步骤：先走确定性路径解析（推荐）
+
+在真正开始 ingest 之前，优先使用本仓库内置脚本：
+
+```bash
+python ".agents/scripts/router.py" ingest [可选参数]
+```
+
+读取其 JSON 输出，优先使用里面给出的：
+- `workspace_root`
+- `wiki_dir`
+- `raw_dir`
+- `index_path`
+- `log_path`
+
+作用：
+- 避免在不同工作目录下靠模型猜测路径
+- 在真正 ingest 前先确认 `wiki/`、`raw/`、`index.md`、`log.md` 是否存在
+- 让后续步骤直接围绕稳定路径执行
+
 ### 0) 先判定资料类型（论文优先）
 
 - `raw/02-papers/*.pdf` → **论文模式（Paper Mode）**：遵循本仓库当前的极简模板（稳定的 frontmatter + 固定章节），但在内容上按论文习惯抽取“问题-方法-证据-局限”。

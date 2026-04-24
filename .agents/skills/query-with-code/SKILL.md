@@ -58,6 +58,8 @@ user-invocable: true
 ### 步骤 1：先查本地知识库，不能跳过
 **永远先读 `wiki/index.md`。**
 
+> 注：当前 `query-with-code` 仍沿用 index-first 流程；它尚未跟随 `/query` 一起切换到 `search_index.py` 驱动的 search-index-first 模式。
+
 检索顺序：
 1. 先用导航层（快速入口、按主题浏览）判断论文属于哪个主题网络
 2. 再用完整注册表定位相关 `source / entity / concept / synthesis`
