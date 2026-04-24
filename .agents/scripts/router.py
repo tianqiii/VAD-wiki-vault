@@ -5,6 +5,8 @@
 用法：
     python .agents/scripts/router.py ingest
     python .agents/scripts/router.py query "BiSP 和 ABMA 有什么关系？"
+    python .agents/scripts/router.py query-with-code "STNMamba 和代码仓库如何对齐？"
+    python .agents/scripts/router.py paper-deep-reading "raw/02-papers/foo.pdf"
     python .agents/scripts/router.py lint
 """
 
@@ -16,15 +18,15 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SCRIPT_DIR.parents[1]
-VALID_SUBCOMMANDS = {"ingest", "query", "lint", "query-with-code", "help"}
+VALID_SUBCOMMANDS = {"ingest", "query", "lint", "query-with-code", "paper-deep-reading", "help"}
 
 
-def build_result(subcommand: str, args: str) -> dict:
+def build_result(subcommand: str, args: str) -> dict[str, object]:
     wiki_dir = WORKSPACE_ROOT / "wiki"
     raw_dir = WORKSPACE_ROOT / "raw"
     index_path = wiki_dir / "index.md"
     log_path = wiki_dir / "log.md"
-    result = {
+    result: dict[str, object] = {
         "status": "ok",
         "subcommand": subcommand,
         "args": args,

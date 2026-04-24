@@ -33,6 +33,7 @@
 └── ⚙️ .agents/                  ← Claude Code 官方配置目录
     └── 🛠️ skills/               ← Agent Skill中心
         ├── ⚙️ ingest/           ← 自定义：编译收件箱 raw 文件到 wiki，并执行 09-archive 归档
+        ├── 📚 paper-deep-reading/ ← 自定义：深读论文 PDF，抽图到 assets，提炼公式为 LaTeX，并为 query-with-code 预埋对照线索
         ├── 🔎 query/            ← 自定义：优先在 index 上做命中搜索，再精读少量候选页面并生成带双链引用的回答
         ├── 🔎 query-with-code/  ← 自定义：可以对代码和对应论文进行分析
         ├── 🩺 lint/             ← 自定义：知识体检，检查死链、孤儿页、完整注册表缺失与知识冲突
@@ -66,8 +67,18 @@
 
 - `/query <问题>` — 在知识库中搜索相关内容 会调用 `JDocMunch` 的工具来查找内容
 - `/query-with-code <问题>，<代码仓库地址>` — 在知识库中搜索对应论文和代码
-- `/ingest` — 将新的原始资料编译到知识库
+- `/paper-deep-reading <pdf路径>` — 先做论文证据层：抽取关键图片到 `assets/`，并在 wiki/source 中预留关键公式与代码对照线索
+- `/ingest` — 将新的原始资料编译到知识库；当输入是论文 PDF 时，默认先调用 `paper_deep_read.py`，再完成摘要、实体/概念、索引、日志与归档
 - `/lint` — 检查知识库健康度（死链、孤儿页面）
+
+### 本地辅助脚本
+
+- `python .agents/scripts/pdf_tool.py extract-text <pdf>` — 抽取论文全文文本（优先 `pdftotext`，失败回退 `pymupdf`）
+- `python .agents/scripts/pdf_tool.py find <pdf> "Figure 1"` — 查找锚点位置与页码
+- `python .agents/scripts/pdf_tool.py render-page <pdf> --page 3 --output /tmp/page-3.png` — 渲染整页截图
+- `python .agents/scripts/pdf_tool.py snapshot-query <pdf> "Figure 1" --output assets/papers/foo/figure-01.png --preset figure` — 按查询自动裁图
+- `python .agents/scripts/pdf_tool.py snapshot-rect <pdf> --page 3 --rect 10,20,500,700 --output assets/papers/foo/figure-01.png` — 按矩形精确裁图
+- `python .agents/scripts/paper_deep_read.py <pdf>` — 生成 `wiki/sources/摘要-*.md` 的深读骨架、文本缓存与图示占位
 
 ## 索引设计
 
