@@ -47,11 +47,24 @@
 
 ## 使用方式
 
+配置`JDocMunch MCP`：
+```json
+"mcp": {
+  "jdocmunch": {
+    "type": "local",
+    "command": [
+    "uvx",
+    "jdocmunch-mcp",
+    ],
+    "enabled": true
+  },
+}
+```
 在 Obsidian 中打开本 vault，使用Claude Code或者Claudian插件执行操作。
 
 ### 常用命令
 
-- `/query <问题>` — 在知识库中搜索相关内容
+- `/query <问题>` — 在知识库中搜索相关内容 会调用 `JDocMunch` 的工具来查找内容
 - `/query-with-code <问题>，<代码仓库地址>` — 在知识库中搜索对应论文和代码
 - `/ingest` — 将新的原始资料编译到知识库
 - `/lint` — 检查知识库健康度（死链、孤儿页面）
