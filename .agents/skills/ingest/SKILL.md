@@ -45,21 +45,52 @@ python ".agents/scripts/router.py" ingest
 
 | 输入类型 | 模式 | 读取策略 | 失败处理 |
 |---|---|---|---|
-| `raw/02-papers/*.pdf` | 论文模式 | **先调用 `paper_deep_read.py` 生成证据层**，再补摘要 / entity / concept / index / log | 深读脚本失败时保留 source 骨架并标注 `需要人工补读`，**不归档** |
+| `raw/02-papers/*.pdf` | 论文模式 | **先调用 `paper_deep_read.py` 生成证据层**；普通英文论文默认规则直出，中文论文或复杂候选默认走 agent 两阶段，再补摘要 / entity / concept / index / log | 深读脚本失败时保留 source 骨架并标注 `需要人工补读`，**不归档** |
 | `raw/01-articles/*.md` | 通用模式 | 全文读取 | 正常继续 |
 | 其他可读文本资料 | 通用模式 | 全文读取 | 正常继续 |
 
 #### 论文模式默认子流程（强制）
 
-当输入是 `raw/02-papers/*.pdf` 时，`ingest` 不再自己从零做图示/公式工作，而是把这部分交给 `paper-deep-reading` 的本地执行器：
+当输入是 `raw/02-papers/*.pdf` 时，`ingest` 不再自己从零做图示/公式工作，而是把这部分交给 `paper-deep-reading` 的本地执行器。
+
+默认分流规则：
+
+- **规则直出模式**：英文论文、caption 规整、候选价值判断明显时，直接运行：
 
 ```bash
 python ".agents/scripts/paper_deep_read.py" "<pdf路径>"
 ```
 
+- **agent 两阶段模式**：当满足以下任一条件时，`ingest` 应默认切到两阶段，而不是继续单阶段直出：
+  - 论文正文主要是中文，或 caption 高频出现 `图1/图 1/表1/表 1`
+  - 候选虽然召回到了，但你判断“规则排序无法稳定代表论文价值”
+  - 版面复杂（双栏密集、图表靠得很近、同页多张子图/多张表）
+  - 后续明确要做 `/query-with-code`，且图表选择质量会直接影响代码对照
+
+第一阶段先运行：
+
+```bash
+python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
+```
+
+读取其输出中的：
+
+- `candidate_pool`
+- `recommended_slots`
+- `selection_deficit`
+- `skipped_candidates`
+
+然后由 agent 选择最终要保留的 slot，再运行第二阶段：
+
+```bash
+python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent \
+  --selected-slot figure-01 \
+  --selected-slot table-01
+```
+
 `ingest` 在论文模式下的职责是：
 
-1. 调用 `paper_deep_read.py` 生成证据层（`assets/papers/{slug}/`、`source` 骨架、文本缓存）
+1. 调用 `paper_deep_read.py` 生成证据层（`assets/papers/{slug}/`、`source` 骨架、文本缓存）；若走 agent 两阶段，则先拿候选池再回填 `selected-slot`
 2. 在已有骨架上补：核心摘要、实体、概念、知识链接
 3. 更新 `wiki/index.md`、`wiki/log.md`
 4. 确认成功后再归档到 `raw/09-archive/`
@@ -68,6 +99,7 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>"
 
 - `ingest` = 总流程 / 编排层
 - `paper-deep-reading` = 论文证据层 / 子流程
+- 若切到 agent 两阶段，`ingest` 负责在第一阶段读取候选池、做 slot 决策，再调用第二阶段落盘
 
 ### 步骤 2：提炼核心
 
@@ -212,6 +244,22 @@ last_updated: YYYY-MM-DD
 - `## 关键公式`
 - `## 代码对照线索`
 
+#### 何时必须升级为 agent 两阶段 deep read
+
+命中以下任一条件时，`ingest` 不应停留在规则直出模式，而应自动升级：
+
+- 中文论文或中英混排论文，且关键 caption 以 `图/表` 为主
+- `paper_deep_read.py --selection-mode agent` 返回的 `candidate_pool` 明显比规则模式更丰富
+- `selection_deficit` 显示规则模式在高价值表格上存在明显缺额，而该论文又依赖表格证据支撑结论
+- `skipped_candidates` 显示大量候选在某些 query 变体上失败，需要 agent 根据上下文做更稳的保留决策
+
+升级后的收口规则：
+
+1. 先拿 `candidate_pool`
+2. 基于 `recommended_slots` 做初判，但不要盲从
+3. 如需保守，优先保留“方法总览图 + 关键结果表 + 一张补充图”
+4. 第二阶段回填 `--selected-slot ...` 后，再继续 ingest 的摘要 / entity / concept / index / log / 归档流程
+
 此时补充要求：
 
 - 图片写入 `assets/papers/{slug}/`
@@ -221,19 +269,30 @@ last_updated: YYYY-MM-DD
 #### ingest 与 paper-deep-reading 的边界
 
 - `paper-deep-reading` 负责：PDF 文本抽取、锚点检索、图示裁图、source 骨架与公式空位
-- `ingest` 负责：知识提炼、entity/concept 建立、索引更新、日志更新、归档
+- `ingest` 负责：知识提炼、entity/concept 建立、索引更新、日志更新、归档，以及在需要时 orchestrate agent 两阶段 slot 选择
 - 禁止两边都重复生成同一批图示或重复初始化同一个 source 页结构
 
 ### 步骤 5：更新索引与日志
 
 1. **完整注册表（必须）**：`wiki/index.md` 的 `## 完整注册表`
 2. **导航层（按需）**：只补入口价值高的页面；拿不准只更注册表
-3. **日志**：`wiki/log.md` append-only
+3. **日志**：必须通过统一脚本 append-only 写入 `wiki/log.md`
+
+```bash
+python ".agents/scripts/write_log.py" \
+  --log-path "<log_path>" \
+  --action ingest \
+  --summary "<操作简述>" \
+  --detail "变更=新增 [[PageName]]；更新 [[index.md]]" \
+  --detail "冲突=无"
+```
+
+写入效果示例：
 
 ```markdown
 ## [YYYY-MM-DD] ingest | 操作简述
-- **变更**: 新增 [[PageName]]; 更新 [[index.md]]
-- **冲突**: 无 (或: 冲突 [[Page]], 已暂停)
+- **变更**: 新增 [[PageName]]；更新 [[index.md]]
+- **冲突**: 无 (或: 冲突 [[Page]]，已暂停)
 ```
 
 ### 步骤 6：归档 + 路径一致性

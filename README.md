@@ -93,7 +93,7 @@
 ### 自动回归重点
 
 - 完整命中场景：存在高价值方法图、补充图和高价值表格时，结果应为 `2 图 + 1 表`。
-- 缺表场景：没有达到阈值的高价值表格时，不生成低价值 `table-01.png`，而是返回 `selection_deficit.table` 缺额信息。
+- 缺表场景：没有达到阈值的高价值表格时，不生成低价值 `table-01.png`，而是返回 `selection_deficit.missing.table` 缺额信息。
 - 罗马数字场景：`Table II`、`Fig. IV` 这类正文 caption 需要被正确召回并参与排序。
 - 确定性重跑场景：同一 PDF 连跑两次，入选项的 `query/page_number/kind/value_bucket/selection_rank` 应保持一致。
 

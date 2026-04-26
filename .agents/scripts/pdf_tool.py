@@ -290,14 +290,15 @@ def query_variants(query: str) -> list[str]:
     add(query)
 
     match = re.match(
-        r"^(Figure|Fig\.|TABLE|Table|Tab\.)\s+([A-Za-z0-9]+)$", query.strip()
+        r"^(Figure|Fig\.|FIGURE|FIG\.|TABLE|Table|Tab\.|TAB\.|图|表)\s*([A-Za-z0-9]+)$",
+        query.strip(),
     )
     if not match:
         return variants
 
     prefix = match.group(1)
     index_token = match.group(2)
-    normalized_prefix = "figure" if prefix.lower().startswith("fig") else "table"
+    normalized_prefix = "figure" if prefix.lower().startswith("fig") or prefix == "图" else "table"
     arabic_token = index_token
     roman_token: str | None = None
 
@@ -314,12 +315,22 @@ def query_variants(query: str) -> list[str]:
             add(f"{figure_prefix} {arabic_token}")
             if roman_token is not None:
                 add(f"{figure_prefix} {roman_token}")
+        add(f"图{arabic_token}")
+        add(f"图 {arabic_token}")
+        if roman_token is not None:
+            add(f"图{roman_token}")
+            add(f"图 {roman_token}")
     else:
         table_prefixes = ["Table", "TABLE", "Tab.", "TAB."]
         for table_prefix in table_prefixes:
             add(f"{table_prefix} {arabic_token}")
             if roman_token is not None:
                 add(f"{table_prefix} {roman_token}")
+        add(f"表{arabic_token}")
+        add(f"表 {arabic_token}")
+        if roman_token is not None:
+            add(f"表{roman_token}")
+            add(f"表 {roman_token}")
 
     return variants
 
@@ -482,6 +493,13 @@ def select_caption_rect(
 ) -> pymupdf.Rect:
     normalized_queries = [normalize_token(item) for item in query_variants(query)]
     caption_candidates: list[pymupdf.Rect] = []
+    scored_candidates: list[tuple[float, int, float, float, pymupdf.Rect]] = []
+
+    def rect_distance(left: pymupdf.Rect, right: pymupdf.Rect) -> float:
+        horizontal_gap = max(0.0, max(left.x0, right.x0) - min(left.x1, right.x1))
+        vertical_gap = max(0.0, max(left.y0, right.y0) - min(left.y1, right.y1))
+        return (horizontal_gap * horizontal_gap + vertical_gap * vertical_gap) ** 0.5
+
     for block in get_text_blocks(page):
         normalized_text = normalize_token(block.text)
         if any(
@@ -489,6 +507,31 @@ def select_caption_rect(
             for normalized_query in normalized_queries
         ):
             caption_candidates.append(block.rect)
+            if matches:
+                best_distance = min(rect_distance(block.rect, match) for match in matches)
+                best_vertical_gap = min(
+                    max(0.0, match.y0 - block.rect.y1, block.rect.y0 - match.y1)
+                    for match in matches
+                )
+                overlap_bonus = 0.0
+                if any(block.rect.intersects(match) for match in matches):
+                    overlap_bonus = -120.0
+                scored_candidates.append(
+                    (
+                        best_distance + best_vertical_gap * 0.4 + overlap_bonus,
+                        0 if normalized_text == normalized_queries[0] else 1,
+                        block.rect.y0,
+                        block.rect.x0,
+                        block.rect,
+                    )
+                )
+
+    if scored_candidates:
+        scored_candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+        best_score = scored_candidates[0][0]
+        if best_score <= 420.0:
+            return scored_candidates[0][4]
+
     if caption_candidates:
         caption_candidates.sort(key=lambda rect: (rect.y0, rect.x0))
         return caption_candidates[0]
