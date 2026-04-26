@@ -7,9 +7,9 @@
 - **注册层**：保留完整页面登记，方便 ingest / query / lint 作为稳定入口使用。
 
 当前知识库规模：
-- Sources：16
-- Entities：14
-- Concepts：13
+- Sources：17
+- Entities：15
+- Concepts：14
 - Syntheses：2
 
 ## 快速入口
@@ -45,6 +45,7 @@
 - [[摘要-moba-motion-memory-augmented-deblurring-autoencoder-for-video-anomaly-detection]] — 去模糊伪异常 + 运动记忆检索的跨域稳健 VAD 方法。
 - [[摘要-stnmamba-mamba-based-spatial-temporal-normality-learning-for-video-anomaly-detection]] — 用 Mamba/SSM 学习时空一致性并配套记忆库的高效 VAD 方法。
 - [[摘要-vadclip-adapting-vision-language-models-for-weakly-supervised-video-anomaly-detection]] — 冻结 CLIP + 双分支对齐的弱监督 VAD 方法。
+- [[摘要-self-distilled-masked-auto-encoders-are-efficient-video-anomaly-detectors]] — 用轻量 masked autoencoder、自蒸馏与合成异常增强追求高吞吐 VAD 的方法论文。
 
 ### Entities
 - [[ADPLGVAD]] — 注意力驱动的同步式伪标签自训练弱监督 VAD 方法。
@@ -61,6 +62,7 @@
 - [[MoBA]] — 去模糊伪异常 + 运动记忆检索的 VAD 方法。
 - [[STNMamba]] — Mamba/SSM 驱动的时空一致性学习 VAD 方法。
 - [[VadCLIP]] — 冻结 CLIP + 对齐分支的弱监督 VAD 方法。
+- [[AEDMAE]] — 轻量 masked autoencoder + 自蒸馏的高吞吐 VAD 方法。
 
 ### Concepts
 - [[BidirectionalSkipFramePrediction]] — 通过双向跳帧预测主动放大正常/异常差异的机制概念。
@@ -76,6 +78,7 @@
 - [[VideoAnomalyDetection]] — 在视频序列中识别异常行为或事件的核心任务。
 - [[WeaklySupervisedVideoAnomalyDetection]] — 只依赖视频级粗标签训练异常定位模型的任务设定。
 - [[SpatialTemporalConsistency]] — 用多层级时空一致性刻画正常耦合模式的建模目标。
+- [[SelfDistillationForVideoAnomalyDetection]] — 用 teacher-student 差异增强异常敏感性的训练机制。
 
 ### Syntheses
 - [[bisp-fusion-strategies]] — 总结 BiSP 与长序列建模、显著性细化、伪异常生成和记忆增强路线的融合优先级。

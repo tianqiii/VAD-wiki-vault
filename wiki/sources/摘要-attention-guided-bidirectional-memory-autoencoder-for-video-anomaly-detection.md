@@ -3,7 +3,7 @@ title: "摘要-attention-guided-bidirectional-memory-autoencoder-for-video-anoma
 type: source
 tags: [来源, 论文, 视频异常检测, 记忆增强, 双向]
 sources: ["raw/09-archive/Le和Nguyen - 2026 - Attention-guided bidirectional memory autoencoder for video anomaly detection.pdf"]
-last_updated: 2026-04-22
+last_updated: 2026-04-26
 ---
 
 ## Metadata
@@ -30,6 +30,36 @@ last_updated: 2026-04-22
 - 论文报告在多基准与多场景（长异常、短异常、缺失/模糊、跨数据集）下整体领先。
 - 伪异常的构造方式与注入概率会影响效果；论文本身也讨论了在遮挡/静止/远距离异常上的失败案例。
 
+
+## 关键图示
+- ![[papers/attention-guided-bidirectional-memory-autoencoder-for-video-anomaly-detection/figure-01.png]]
+- 图 1：方法图：优先帮助理解整体架构、模块边界与信息流。 线索：Fig. 1. Architecture of attention-guided bidirectional memory autoencoder (ABMA). chanism 𝑝. This probabilistic sampling。
+- ![[papers/attention-guided-bidirectional-memory-autoencoder-for-video-anomaly-detection/table-01.png]]
+- 表 2：对比表：优先帮助读者快速看清方法与基线、数据集或指标之间的差异。 线索：Table 1 Comparison table of ABMA, MNAD [11], DEDDNet [24] and PB [8]. Criterion ABMA MNAD [11] Objective Learn more disc。
+- ![[papers/attention-guided-bidirectional-memory-autoencoder-for-video-anomaly-detection/figure-02.png]]
+- 图 3：损失/目标图：优先解释训练目标、约束项或异常分数构成。 线索：Fig. 2. Loss functions of ABMA. 𝑝 and 𝑓 denote ‘past’ and ‘future’, respectively, while ‘norm’ and ‘abn’ represent norma。
+## 关键公式
+> [!todo]
+> 你计划自己写公式，这里先预留稳定空位。建议至少补：总训练目标、异常分数、关键模块约束。
+
+### 公式 1：总训练目标（待补）
+$$
+% 在这里补充总训练目标
+$$
+
+### 公式 2：异常分数 / 检索分数（待补）
+$$
+% 在这里补充异常分数或检索分数
+$$
+
+### 公式 3：关键模块约束（待补，可删）
+$$
+% 在这里补充关键模块公式
+$$
+## 代码对照线索
+- `loss`：优先对照训练脚本中的总损失聚合位置。
+- `score`：优先对照推理阶段的异常分数计算位置。
+- `module`：优先把结构图中的编码器、记忆模块、head 映射到代码类/函数。
 ## 关联连接
 - [[ABMA]] — 论文提出的方法实体。
 - [[MemoryAugmentedVideoAnomalyDetection]] — 记忆增强路线的代表之一。

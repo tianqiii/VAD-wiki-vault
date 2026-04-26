@@ -16,6 +16,7 @@ RAW_DIR: Path
 REQUIRED_FRONTMATTER = {"title", "type", "tags", "sources", "last_updated"}
 VALID_TYPES = {"source", "entity", "concept", "synthesis"}
 CONTENT_DIRS = ("sources", "entities", "concepts", "syntheses")
+ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".mp4", ".mov", ".avi"}
 
 
 def read_text(path: Path) -> str:
@@ -48,6 +49,11 @@ def get_pages() -> list[Path]:
 
 def extract_wikilinks(text: str) -> list[str]:
     return [m.strip() for m in re.findall(r"\[\[([^\]|#]+)(?:#[^\]]+)?(?:\|[^\]]+)?\]\]", text)]
+
+
+def is_asset_link(target: str) -> bool:
+    lowered = target.casefold()
+    return any(lowered.endswith(ext) for ext in ASSET_EXTENSIONS)
 
 
 def extract_registry_links(index_text: str) -> set[str]:
@@ -110,6 +116,8 @@ def check_broken_links(pages: list[Path]) -> list[dict]:
         rel = str(page.relative_to(WIKI_DIR))
         for target in extract_wikilinks(read_text(page)):
             if target.startswith("raw/"):
+                continue
+            if is_asset_link(target):
                 continue
             if target in {"index", "index.md", "log", "log.md"}:
                 continue

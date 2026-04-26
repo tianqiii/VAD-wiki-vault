@@ -80,7 +80,8 @@
 - `/lint`：全局扫描 `wiki/` 目录，找出孤岛页面（没有双链）、死链（链接不存在的页面）、未进入 `wiki/index.md` 完整注册表的页面，以及存在逻辑冲突的地方，并向我报告。
 
 # 页面 Frontmatter (YAML) 规范
-所有生成的 wiki 页面必须包含以下 YAML 头部：
+> [!IMPORTANT] 所有生成的 wiki 页面必须包含以下 YAML 头部，且tag部分必须使用kebab-case来命名，否则会导致obsidian报错。
+
 ---
 title: "页面标题"
 type: concept | entity | source | synthesis
