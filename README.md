@@ -34,7 +34,7 @@
     └── 🛠️ skills/               ← Agent Skill中心
         ├── ⚙️ ingest/           ← 自定义：编译收件箱 raw 文件到 wiki，并执行 09-archive 归档
         ├── 📚 paper-deep-reading/ ← 自定义：深读论文 PDF，抽图到 assets，沉淀公式空位/LaTeX 草稿与代码对照线索，并为 query-with-code 预埋结构化证据
-        ├── 🔎 query/            ← 自定义：优先在 index 上做命中搜索，再精读少量候选页面并生成带双链引用的回答
+        ├── 🔎 query/            ← 自定义：优先通过 JDocMunch 做 section-level 检索，再精读少量候选段落/页面并生成带双链引用的回答；`index.md` 仅作为 fallback
         ├── 🔎 query-with-code/  ← 自定义：可以对代码和对应论文进行分析
         ├── 🩺 lint/             ← 自定义：知识体检，检查死链、孤儿页、完整注册表缺失与知识冲突
         ├── 🔌 excalidraw-diagram ← 开源skill：创建更生动的excalidraw
@@ -65,7 +65,7 @@
 
 ### 常用命令
 
-- `/query <问题>` — 在知识库中搜索相关内容 会调用 `JDocMunch` 的工具来查找内容
+- `/query <问题>` — 在知识库中搜索相关内容；默认先调用 `JDocMunch` 的 `search_sections -> get_section/get_sections` 做 section-level 检索，必要时再回退到 `index.md` / 本地脚本
 - `/query-with-code <问题>，<代码仓库地址>` — 在知识库中搜索对应论文和代码
 - `/paper-deep-reading <pdf路径>` — 先做论文证据层：默认只在正文主论文范围内召回图表候选，按“先解释方法，再证明效果/效率”的保守策略排序，再以 `2 图 + 1 表` 软配额落盘到 `assets/`，并在 wiki/source 中沉淀关键公式空位 / LaTeX 草稿与代码对照线索
 - `/ingest` — 将新的原始资料编译到知识库；当输入是论文 PDF 时，默认先调用 `paper_deep_read.py`，再完成摘要、实体/概念、索引、日志与归档
@@ -109,7 +109,13 @@
 - 避免 query 阶段一次性读取太多页面，降低上下文爆炸
 - 让 lint 只对“完整注册表”做一致性校验，而不把导航层误判为注册来源
 
-当前 `/query` 已开始向“**优先搜索 index 命中条目，再精读候选页**”演进，而不是默认整篇读取 `index.md`。
+当前 `/query` 的主路径已经调整为“**优先通过 JDocMunch 检索 wiki 内容的相关 sections，再精读少量候选段落或页面**”，而不是默认整篇读取 `index.md`。
+
+`wiki/index.md` 现在主要承担两类职责：
+- **元数据 / 注册表入口**：提供导航层与完整注册表，服务 `/ingest`、`/lint` 和 query 的结构化 fallback
+- **query fallback**：仅在 JDocMunch 不可用、命中为空/失真，或用户问题本身是在问索引结构时，才退回 `search_index.py` 或局部读取 `wiki/index.md`
+
+说明：JDocMunch 的增强型上下文工具（如 `get_section_context`）受安装版本影响，不应当作所有环境都稳定存在的基线能力；本仓库默认依赖 `search_sections + get_section/get_sections + toc/outline` 这一组更稳健的公共能力。
 
 ## 知识来源
 

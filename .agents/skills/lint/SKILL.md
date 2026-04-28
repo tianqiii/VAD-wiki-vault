@@ -99,4 +99,35 @@ LLM 的职责是在此基础上：
 ## 硬约束
 - **仅读扫描**：生成报告前，禁止修改、删除、重命名任何文件
 - **手动确认**：报告后等待用户确认再执行修复
-- **静默日志**：修复完成后，在 wiki/log.md 追加 `## [YYYY-MM-DD] lint | 修复了 N 个问题`
+
+## 日志
+
+检查完成后调用 `write_log.py` 追加日志。如果执行了修复，用 `sync`；如果仅生成报告，用 `lint`：
+
+```bash
+python ".agents/scripts/write_log.py" \
+  --log-path "<log_path>" \
+  --action lint \
+  --summary "<检查简述>" \
+  --detail "P0=<数量>" \
+  --detail "P1=<数量>"
+```
+
+如有修复行为：
+
+```bash
+python ".agents/scripts/write_log.py" \
+  --log-path "<log_path>" \
+  --action sync \
+  --summary "修复了 N 个问题" \
+  --detail "P0修复=<数量>" \
+  --detail "P1修复=<数量>"
+```
+
+生成的日志条目格式为：
+
+```markdown
+## [YYYY-MM-DD] lint | <检查简述>
+- **P0**: <数量>
+- **P1**: <数量>
+```
