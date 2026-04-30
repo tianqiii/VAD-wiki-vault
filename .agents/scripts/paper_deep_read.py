@@ -258,7 +258,101 @@ def build_selection_deficit(
     return deficit
 
 
-def build_new_source(title_slug: str, pdf_name: str, today: str, metadata: dict[str, object], figure_embeds: list[str]) -> str:
+def format_formula_source_hint(capture: dict[str, object]) -> tuple[str, str]:
+    page_number = capture.get("page_number")
+    page_hint = f"第{page_number}页" if isinstance(page_number, int) else "未知页码"
+    label = caption_label_for_capture(capture)
+    snippet = re.sub(r"\s+", " ", str(capture.get("snippet", "")).strip())[:180].rstrip(" ,.;:-")
+    if snippet:
+        return (
+            f"优先回看 {label} 所在的{page_hint}附近段落与相邻公式。",
+            f"{label} 的原文描述里提到：{snippet}。",
+        )
+    reason = re.sub(r"\s+", " ", str(capture.get("selection_reason", "")).strip()).rstrip("。.;:-")
+    if reason:
+        return (
+            f"优先回看 {label} 所在的{page_hint}附近段落与相邻公式。",
+            f"自动筛选线索：{reason}。",
+        )
+    return (f"优先回看 {label} 所在的{page_hint}附近段落与相邻公式。", "")
+
+
+def select_formula_reference(
+    captures: list[dict[str, object]], preferred_buckets: tuple[str, ...], preferred_tokens: tuple[str, ...]
+) -> dict[str, object] | None:
+    if not captures:
+        return None
+    for capture in captures:
+        if str(capture.get("value_bucket", "")) in preferred_buckets:
+            return capture
+    for capture in captures:
+        haystack = _normalize_capture_text(capture)
+        if any(token in haystack for token in preferred_tokens):
+            return capture
+    return captures[0]
+
+
+def build_formula_block(captures: list[dict[str, object]]) -> str:
+    formula_slots = [
+        {
+            "title": "总训练目标（待补）",
+            "placeholder": "% 在这里补充总训练目标",
+            "fallback_location": "优先在方法或训练章节搜索 `loss`、`objective`、`objective function`、`equation` 等字样。",
+            "fallback_description": "原文通常会先用训练目标/损失函数的自然语言描述引出正式公式，可先顺着损失图、目标图或方法总览图附近的段落回查。",
+            "preferred_buckets": ("loss/objective/anomaly-score",),
+            "preferred_tokens": ("loss", "objective", "objective function", "equation", "formula", "training"),
+        },
+        {
+            "title": "异常分数 / 检索分数（待补）",
+            "placeholder": "% 在这里补充异常分数或检索分数",
+            "fallback_location": "优先在推理、evaluation 或 anomaly score 相关段落搜索 `score`、`anomaly score`、`distance`、`psnr` 等字样。",
+            "fallback_description": "原文往往会先解释帧级/片段级分数如何由误差项与距离项组合，再给出正式打分公式。",
+            "preferred_buckets": ("loss/objective/anomaly-score",),
+            "preferred_tokens": ("anomaly score", "score", "distance", "psnr", "reconstruction", "retrieval"),
+        },
+        {
+            "title": "关键模块约束（待补，可删）",
+            "placeholder": "% 在这里补充关键模块公式",
+            "fallback_location": "优先在模块定义、memory / encoder / decoder / regularization 段落搜索 `constraint`、`module`、`memory`、`regularization` 等字样。",
+            "fallback_description": "如果论文没有单独写模块约束公式，可删除本槽位；若有，通常出现在方法细节或子模块说明附近。",
+            "preferred_buckets": ("architecture/training-framework", "loss/objective/anomaly-score"),
+            "preferred_tokens": ("memory", "module", "encoder", "decoder", "regularization", "constraint", "architecture"),
+        },
+    ]
+    blocks = [
+        "> [!todo]",
+        "> 你计划自己写公式，这里先预留稳定空位。每个槽位下都附了原文定位与描述线索，方便回到论文中找到对应公式。",
+        "",
+    ]
+    for index, slot in enumerate(formula_slots, start=1):
+        capture = select_formula_reference(captures, slot["preferred_buckets"], slot["preferred_tokens"])
+        if capture is None:
+            location_hint = slot["fallback_location"]
+            description_hint = slot["fallback_description"]
+        else:
+            location_hint, description_hint = format_formula_source_hint(capture)
+        blocks.extend(
+            [
+                f"### 公式 {index}：{slot['title']}",
+                f"- 原文定位：{location_hint}",
+                f"- 原文描述：{description_hint}",
+                "$$",
+                slot["placeholder"],
+                "$$",
+                "",
+            ]
+        )
+    return "\n".join(blocks).rstrip()
+
+
+def build_new_source(
+    title_slug: str,
+    pdf_name: str,
+    today: str,
+    metadata: dict[str, object],
+    figure_embeds: list[str],
+    captures: list[dict[str, object]],
+) -> str:
     author = metadata.get("author") or "未在 PDF metadata 中找到"
     subject = metadata.get("subject") or "未在 PDF metadata 中找到"
     page_count = metadata.get("page_count") or "未在 PDF metadata 中找到"
@@ -285,23 +379,7 @@ last_updated: {today}
 {figure_block}
 
 ## 关键公式
-> [!todo]
-> 你计划自己写公式，这里先预留稳定空位。建议至少补：总训练目标、异常分数、关键模块约束。
-
-### 公式 1：总训练目标（待补）
-$$
-% 在这里补充总训练目标
-$$
-
-### 公式 2：异常分数 / 检索分数（待补）
-$$
-% 在这里补充异常分数或检索分数
-$$
-
-### 公式 3：关键模块约束（待补，可删）
-$$
-% 在这里补充关键模块公式
-$$
+{build_formula_block(captures)}
 
 ## 代码对照线索
 - `loss`：优先对照训练脚本中的总损失聚合位置。
@@ -314,9 +392,19 @@ $$
 '''
 
 
-def ensure_source_page(source_path: Path, title_slug: str, pdf_name: str, today: str, metadata: dict[str, object], figure_embeds: list[str]) -> None:
+def ensure_source_page(
+    source_path: Path,
+    title_slug: str,
+    pdf_name: str,
+    today: str,
+    metadata: dict[str, object],
+    figure_embeds: list[str],
+    captures: list[dict[str, object]],
+) -> None:
     if not source_path.exists():
-        source_path.write_text(build_new_source(title_slug, pdf_name, today, metadata, figure_embeds), encoding="utf-8")
+        source_path.write_text(
+            build_new_source(title_slug, pdf_name, today, metadata, figure_embeds, captures), encoding="utf-8"
+        )
         return
 
     text = source_path.read_text(encoding="utf-8")
@@ -326,24 +414,7 @@ def ensure_source_page(source_path: Path, title_slug: str, pdf_name: str, today:
     text = replace_section(
         text,
         "## 关键公式",
-        '''> [!todo]
-> 你计划自己写公式，这里先预留稳定空位。建议至少补：总训练目标、异常分数、关键模块约束。
-
-### 公式 1：总训练目标（待补）
-$$
-% 在这里补充总训练目标
-$$
-
-### 公式 2：异常分数 / 检索分数（待补）
-$$
-% 在这里补充异常分数或检索分数
-$$
-
-### 公式 3：关键模块约束（待补，可删）
-$$
-% 在这里补充关键模块公式
-$$
-''',
+        build_formula_block(captures),
     )
     text = replace_section(
         text,
@@ -953,7 +1024,7 @@ def main() -> None:
         selected_by = "rule"
 
     figure_embeds = build_figure_embeds(slug, captures)
-    ensure_source_page(source_path, slug, pdf_path.name, today, metadata, figure_embeds)
+    ensure_source_page(source_path, slug, pdf_path.name, today, metadata, figure_embeds, captures)
     index_changed = add_source_to_index(source_name, "论文深读草稿页，预留关键图示、公式空位与代码对照线索。")
     log_changed = append_log(today, source_name, asset_dir)
 
