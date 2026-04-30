@@ -13,6 +13,7 @@ from typing import cast
 import pymupdf
 
 from pdf_tool import extract_text, probe, query_variants, snapshot_query, snapshot_query_preview
+from write_index import update_index_file
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -357,20 +358,13 @@ $$
 def add_source_to_index(source_link: str, description: str) -> bool:
     if not INDEX_PATH.exists():
         return False
-    text = INDEX_PATH.read_text(encoding="utf-8")
-    entry = f"- [[{source_link}]] — {description}"
-    if entry in text or f"[[{source_link}]]" in text:
-        return False
-
-    pattern = r"(### Sources\n)(.*?)(\n### Entities)"
-    match = re.search(pattern, text, flags=re.DOTALL)
-    if not match:
-        return False
-    registry_body = match.group(2).rstrip()
-    replacement = match.group(1) + registry_body + "\n" + entry + "\n\n### Entities"
-    updated = re.sub(pattern, replacement, text, count=1, flags=re.DOTALL)
-    INDEX_PATH.write_text(updated, encoding="utf-8")
-    return True
+    return update_index_file(
+        INDEX_PATH,
+        section="Sources",
+        page=source_link,
+        description=description,
+        action="upsert",
+    )
 
 
 def append_log(today: str, source_link: str, asset_dir: Path) -> bool:

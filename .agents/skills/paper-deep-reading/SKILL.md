@@ -353,8 +353,18 @@ $$
 
 如果新增或明显增强了 wiki 页面，必须同步：
 
-1. `wiki/index.md` 完整注册表
+1. 通过 `write_index.py` 更新 `wiki/index.md` 完整注册表
 2. `wiki/log.md` append-only 记录
+
+示例：
+
+```bash
+python ".agents/scripts/write_index.py" \
+  --index-path "<index_path>" \
+  --section "Sources" \
+  --page "摘要-{slug}" \
+  --description "论文的核心摘要一句话。"
+```
 
 日志示例：
 

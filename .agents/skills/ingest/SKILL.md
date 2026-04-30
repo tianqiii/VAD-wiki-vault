@@ -274,9 +274,30 @@ last_updated: YYYY-MM-DD
 
 ### 步骤 5：更新索引与日志
 
-1. **完整注册表（必须）**：`wiki/index.md` 的 `## 完整注册表`
-2. **导航层（按需）**：只补入口价值高的页面；拿不准只更注册表
+1. **完整注册表（必须）**：统一通过 `write_index.py` 更新 `wiki/index.md` 的 `## 完整注册表`
+2. **导航层（按需）**：只补入口价值高的页面；拿不准只更注册表。需要补入口时也通过 `write_index.py --nav-section ...` 完成
 3. **日志**：必须通过统一脚本 append-only 写入 `wiki/log.md`
+
+完整注册表示例：
+
+```bash
+python ".agents/scripts/write_index.py" \
+  --index-path "<index_path>" \
+  --section "Sources" \
+  --page "摘要-foo" \
+  --description "该资料的核心主旨摘要。"
+```
+
+导航层示例（仅对高入口价值页面使用）：
+
+```bash
+python ".agents/scripts/write_index.py" \
+  --index-path "<index_path>" \
+  --section "Concepts" \
+  --page "ConceptName" \
+  --description "该概念的核心定义。" \
+  --nav-section "快速入口"
+```
 
 ```bash
 python ".agents/scripts/write_log.py" \
