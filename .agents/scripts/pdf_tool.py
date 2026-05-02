@@ -731,9 +731,9 @@ def _find_caption_for_region(
     page: pymupdf.Page, region: pymupdf.Rect, number: int
 ) -> pymupdf.Rect | None:
     search_zone = pymupdf.Rect(
-        region.x0 - 36.0,
+        region.x0 - 72.0,
         region.y1,
-        region.x1 + 36.0,
+        region.x1 + 72.0,
         min(region.y1 + 200.0, page.rect.y1),
     )
     best_hit: pymupdf.Rect | None = None

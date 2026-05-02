@@ -157,6 +157,35 @@ python ".agents/scripts/pdf_tool.py" snapshot-query <pdf> "Figure 2" --output /t
 python ".agents/scripts/pdf_tool.py" snapshot-query <pdf> "Table II" --output /tmp/table-2.png --preset table --mode auto
 ```
 
+#### Caption 消歧规则（避免截到正文交叉引用）
+
+论文正文经常先在段落里写 `as shown in Fig. 4`，真正的 `Fig. 4.` caption 可能在后一页。`snapshot-query` 默认会按命中顺序选择候选，因此**不能把第一个命中直接视为真实图注**。
+
+处理规则：
+
+1. 对每个要保留的图，先用 `find` 查看全部命中：
+
+```bash
+python ".agents/scripts/pdf_tool.py" find <pdf> "Fig. 4" --mode auto
+```
+
+2. 区分两类命中：
+   - 正文交叉引用：snippet 像 `shown in Fig. 4`、`as Fig. 5 shows`，通常在正文段落中，不是 caption
+   - 真实 caption：snippet 以 `Fig. N.` / `Figure N.` 开头，位置通常紧贴图下方
+3. 若同一图号有多个命中，必须优先选择真实 caption 所在页，并在裁图时显式加 `--page N`：
+
+```bash
+python ".agents/scripts/pdf_tool.py" snapshot-query <pdf> "Fig. 4" \
+  --preset figure \
+  --page 13 \
+  --output /tmp/figure-4.png
+```
+
+4. 临时输出到 `/tmp/opencode/` 后先检查，再覆盖 `assets/` 正式图片。
+5. source 页中的证据锚点必须写真实 caption 页码，而不是正文交叉引用页码。
+
+短规则：出现“正文页先提到图号、后一页才出现图”的版面时，一律用 `find → 选 caption 页 → snapshot-query --page N → 验图 → 覆盖资产`，不要依赖默认首个命中。
+
 #### 何时必须重裁（Recropping Rules）
 
 出现以下任一情况，必须重裁：
