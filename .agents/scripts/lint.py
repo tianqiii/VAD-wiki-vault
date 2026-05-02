@@ -174,7 +174,7 @@ def check_stale_raw_paths(pages: list[Path]) -> list[dict]:
     issues = []
     for page in pages:
         if "raw/02-papers/" in read_text(page):
-            issues.append(issue("P1", "stale_raw_path", str(page.relative_to(WIKI_DIR)), "仍引用 `raw/02-papers/`，应改为 `raw/09-archive/`"))
+            issues.append(issue("P1", "stale_raw_path", str(page.relative_to(WIKI_DIR)), "仍引用 `raw/02-papers/`，应改为 `raw/09-archived/`"))
     return issues
 
 

@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
+import time
 from datetime import date
 from pathlib import Path
 from typing import cast
@@ -16,16 +18,28 @@ from pdf_tool import extract_text, probe, query_variants, snapshot_query, snapsh
 from write_index import update_index_file
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+def find_workspace_root() -> Path:
+    """识别当前 vault 根目录，避免符号链接脚本把根目录解析到模板仓库。"""
+    candidates = [Path.cwd(), *Path.cwd().parents]
+    script_path = Path(__file__)
+    if not script_path.is_absolute():
+        script_path = Path.cwd() / script_path
+    candidates.extend(script_path.parents)
+    candidates.extend(script_path.resolve().parents)
+    for candidate in candidates:
+        if (candidate / "wiki").is_dir() and (candidate / "raw").is_dir():
+            return candidate
+    return script_path.resolve().parents[2]
+
+
+WORKSPACE_ROOT = find_workspace_root()
 WIKI_DIR = WORKSPACE_ROOT / "wiki"
 ASSETS_DIR = WORKSPACE_ROOT / "assets"
-CACHE_DIR = WORKSPACE_ROOT / ".agents" / "cache" / "papers"
+CACHE_DIR = WORKSPACE_ROOT / ".cache" / "agents" / "papers"
 INDEX_PATH = WIKI_DIR / "index.md"
 LOG_PATH = WIKI_DIR / "log.md"
 TARGET_FIGURE_QUOTA = 2
-TARGET_TABLE_QUOTA = 1
-HIGH_VALUE_TABLE_THRESHOLD = 150
-KIND_PRIORITY = {"figure": 0, "table": 1}
+KIND_PRIORITY = {"figure": 0}
 BODY_BOUNDARY_MARKERS = (
     "references",
     "appendix",
@@ -209,14 +223,20 @@ def preview_query_candidates(
     pdf_path: Path,
     variants: list[str],
     preset: str,
+    page_number: int | None = None,
     mode: str = "auto",
+    preview_timeout: float | None = None,
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     best_result: dict[str, object] | None = None
     best_score = float("-inf")
     attempts: list[dict[str, object]] = []
+    started_at = time.monotonic()
     for variant in variants:
+        if preview_timeout is not None and time.monotonic() - started_at > preview_timeout:
+            attempts.append({"query": variant, "error": "PreviewTimeout"})
+            break
         try:
-            result = snapshot_query_preview(pdf_path, variant, preset=preset, mode=mode)
+            result = snapshot_query_preview(pdf_path, variant, preset=preset, page=page_number, mode=mode)
         except Exception as exc:
             attempts.append({"query": variant, "error": type(exc).__name__})
             continue
@@ -229,21 +249,17 @@ def preview_query_candidates(
 
 
 def build_selection_deficit(
-    selected: list[dict[str, object]], target_figure_quota: int, target_table_quota: int
+    selected: list[dict[str, object]], target_figure_quota: int
 ) -> dict[str, object]:
     selected_figures = sum(1 for capture in selected if str(capture.get("kind")) == "figure")
-    selected_tables = sum(1 for capture in selected if str(capture.get("kind")) == "table")
     deficit = {
-        "target": {"figure": target_figure_quota, "table": target_table_quota},
-        "selected": {"figure": selected_figures, "table": selected_tables},
+        "target": {"figure": target_figure_quota},
+        "selected": {"figure": selected_figures},
         "missing": {
             "figure": max(0, target_figure_quota - selected_figures),
-            "table": max(0, target_table_quota - selected_tables),
         },
         "policy": {
-            "table_threshold": HIGH_VALUE_TABLE_THRESHOLD,
-            "table_mode": "high-value-only",
-            "kind_priority": ["figure", "table"],
+            "kind_priority": ["figure"],
             "sort_key": [
                 "value_score desc",
                 "kind priority",
@@ -253,7 +269,7 @@ def build_selection_deficit(
             ],
         },
     }
-    if deficit["missing"]["figure"] == 0 and deficit["missing"]["table"] == 0:
+    if deficit["missing"]["figure"] == 0:
         return {}
     return deficit
 
@@ -352,6 +368,7 @@ def build_new_source(
     metadata: dict[str, object],
     figure_embeds: list[str],
     captures: list[dict[str, object]],
+    table_descriptions: str = "",
 ) -> str:
     author = metadata.get("author") or "未在 PDF metadata 中找到"
     subject = metadata.get("subject") or "未在 PDF metadata 中找到"
@@ -361,7 +378,7 @@ def build_new_source(
 title: "摘要-{title_slug}"
 type: source
 tags: [来源, 论文, 深读草稿]
-sources: ["raw/09-archive/{pdf_name}"]
+sources: ["raw/09-archived/{pdf_name}"]
 last_updated: {today}
 ---
 
@@ -377,6 +394,9 @@ last_updated: {today}
 
 ## 关键图示
 {figure_block}
+
+## 表格速览
+{table_descriptions}
 
 ## 关键公式
 {build_formula_block(captures)}
@@ -400,10 +420,11 @@ def ensure_source_page(
     metadata: dict[str, object],
     figure_embeds: list[str],
     captures: list[dict[str, object]],
+    table_descriptions: str = "",
 ) -> None:
     if not source_path.exists():
         source_path.write_text(
-            build_new_source(title_slug, pdf_name, today, metadata, figure_embeds, captures), encoding="utf-8"
+            build_new_source(title_slug, pdf_name, today, metadata, figure_embeds, captures, table_descriptions), encoding="utf-8"
         )
         return
 
@@ -411,6 +432,11 @@ def ensure_source_page(
     text = update_last_updated(text, today)
     figure_block = "\n".join(figure_embeds) if figure_embeds else "> [!todo]\n> 还没有自动捕获到图示；可用 `pdf_tool.py snapshot-query` 补抓。"
     text = replace_section(text, "## 关键图示", figure_block)
+    text = replace_section(
+        text,
+        "## 表格速览",
+        table_descriptions,
+    )
     text = replace_section(
         text,
         "## 关键公式",
@@ -454,17 +480,36 @@ def append_log(today: str, source_link: str, asset_dir: Path) -> bool:
     return True
 
 
-def build_capture_pool(pdf_path: Path) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+def build_capture_pool(
+    pdf_path: Path,
+    max_candidates: int | None = None,
+    preview_timeout: float | None = None,
+    progress: bool = False,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     page_limit = detect_main_body_page_limit(pdf_path)
+    body_candidates = collect_body_candidates(pdf_path, page_limit)
+    if max_candidates is not None:
+        body_candidates = body_candidates[:max_candidates]
 
     ordered_candidates: list[dict[str, object]] = []
     skipped_candidates: list[dict[str, object]] = []
-    for candidate in collect_body_candidates(pdf_path, page_limit):
+    total_candidates = len(body_candidates)
+    for index, candidate in enumerate(body_candidates, start=1):
+        page_number = candidate.get("page_number")
+        if progress:
+            print(
+                f"[paper-deep-reading] preview {index}/{total_candidates}: "
+                f"{candidate.get('semantic_slot')} {candidate.get('query')} page={page_number}",
+                file=sys.stderr,
+                flush=True,
+            )
         result, attempts = preview_query_candidates(
             pdf_path,
             listify_strings(candidate.get("query_variants", [])),
-            preset="table" if candidate["kind"] == "table" else "figure",
-            mode="auto",
+            preset="generic" if candidate["kind"] == "table" else "figure",
+            page_number=page_number if isinstance(page_number, int) else None,
+            mode="pdf",
+            preview_timeout=preview_timeout,
         )
         if result is None:
             skipped_candidates.append(
@@ -503,31 +548,20 @@ def apply_rule_selection(
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     selected: list[dict[str, object]] = []
     figure_count = 0
-    table_count = 0
     for candidate in ordered_candidates:
         kind = str(candidate.get("kind", "figure"))
-        value_bucket = str(candidate.get("value_bucket", ""))
-        value_score = preview_score(candidate.get("value_score"))
         if kind == "figure":
-            if figure_count >= TARGET_FIGURE_QUOTA or len(selected) >= max_figures:
+            if len(selected) >= max_figures:
                 continue
             selected.append(candidate)
             figure_count += 1
-            continue
-        if kind == "table":
-            if table_count >= TARGET_TABLE_QUOTA or len(selected) >= max_figures:
-                continue
-            if value_score < HIGH_VALUE_TABLE_THRESHOLD or value_bucket == "generic-table":
-                continue
-            selected.append(candidate)
-            table_count += 1
 
     selected.sort(key=selection_sort_key)
     for selection_rank, capture in enumerate(selected, start=1):
         capture["selection_rank"] = selection_rank
 
     return selected, {
-        "selection_deficit": build_selection_deficit(selected, TARGET_FIGURE_QUOTA, TARGET_TABLE_QUOTA),
+        "selection_deficit": build_selection_deficit(selected, TARGET_FIGURE_QUOTA),
     }
 
 
@@ -561,72 +595,6 @@ def infer_value_label(capture: dict[str, object]) -> tuple[str, int, str]:
     text = _normalize_capture_text(capture)
     page_number = capture.get("page_number")
     page_hint = f"第{page_number}页" if isinstance(page_number, int) else "未知页码"
-
-    if kind == "table":
-        table_rules = [
-            (
-                "comparison-table",
-                (
-                    "comparison",
-                    "compared",
-                    "benchmark",
-                    "baselin",
-                    "vs ",
-                    " versus ",
-                    "method",
-                    "dataset",
-                    "sota",
-                    "result",
-                    "summary",
-                ),
-                320,
-                "最适合作为方法/基线/数据集的直接证据",
-            ),
-            (
-                "performance-table",
-                (
-                    "performance",
-                    "auc",
-                    "fps",
-                    "accuracy",
-                    "precision",
-                    "recall",
-                    "latency",
-                    "throughput",
-                    "params",
-                    "memory",
-                    "runtime",
-                ),
-                230,
-                "最适合支撑性能或效率结论",
-            ),
-            (
-                "ablation-table",
-                (
-                    "ablation",
-                    "without",
-                    "w/o",
-                    "variant",
-                    "component",
-                    "effect",
-                    "impact",
-                    "study",
-                ),
-                160,
-                "最适合说明模块增删带来的贡献变化",
-            ),
-        ]
-        for bucket, tokens, base_score, rationale in table_rules:
-            if any(token in text for token in tokens):
-                score = base_score
-                if bucket == "comparison-table" and isinstance(page_number, int) and page_number <= 4:
-                    score += 12
-                if bucket == "performance-table" and isinstance(page_number, int) and page_number <= 6:
-                    score += 8
-                if bucket == "ablation-table" and isinstance(page_number, int) and page_number >= 6:
-                    score += 8
-                return bucket, score, f"命中表格关键词；{rationale}。{page_hint}"
-        return "generic-table", 60, f"未命中更强的对比/性能/消融线索，先按通用表格处理。{page_hint}"
 
     figure_rules = [
         (
@@ -741,15 +709,34 @@ def select_candidates_by_slot(
     return [candidate for candidate in ordered_candidates if str(candidate.get("semantic_slot")) in wanted]
 
 
-def auto_capture_figures(pdf_path: Path, asset_dir: Path, max_figures: int) -> tuple[list[dict[str, object]], dict[str, object]]:
+def auto_capture_figures(
+    pdf_path: Path,
+    asset_dir: Path,
+    max_figures: int,
+    max_candidates: int | None = None,
+    preview_timeout: float | None = None,
+    progress: bool = False,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
     ensure_dir(asset_dir)
-    ordered_candidates, skipped_candidates = build_capture_pool(pdf_path)
+    ordered_candidates, skipped_candidates = build_capture_pool(
+        pdf_path,
+        max_candidates=max_candidates,
+        preview_timeout=preview_timeout,
+        progress=progress,
+    )
     capture_pool, selection_meta = apply_rule_selection(ordered_candidates, max_figures)
     selection_deficit = selection_meta.get("selection_deficit")
     captured: list[dict[str, object]] = []
     capture_errors: list[dict[str, object]] = []
     seen_outputs: set[str] = set()
     kind_counts: dict[str, int] = {}
+
+    # 从候选池中收集表格（apply_rule_selection 只选图，表格单独处理）
+    table_candidates = [
+        c for c in ordered_candidates
+        if str(c.get("kind", "")) == "table"
+    ]
+
     for capture in capture_pool:
         kind = str(capture.get("kind", "figure"))
         page_number = capture.get("page_number")
@@ -764,7 +751,7 @@ def auto_capture_figures(pdf_path: Path, asset_dir: Path, max_figures: int) -> t
                 pdf_path,
                 str(capture.get("query", "Figure 1")),
                 output,
-                preset="table" if kind == "table" else "figure",
+                preset=kind if kind in ("figure", "figure-column", "generic") else "figure",
                 page=page_number,
                 dpi=200,
             )
@@ -790,6 +777,13 @@ def auto_capture_figures(pdf_path: Path, asset_dir: Path, max_figures: int) -> t
         result["selection_rank"] = capture.get("selection_rank")
         captured.append(add_value_metadata(result))
         seen_outputs.add(str(output))
+
+    # 表格不截图，直接以元数据形式加入 captured 列表供后续描述生成
+    for table_candidate in table_candidates:
+        table_result = dict(table_candidate)
+        table_result["file_name"] = ""
+        captured.append(add_value_metadata(table_result))
+
     return captured, {
         "selection_deficit": selection_deficit,
         "capture_errors": capture_errors or None,
@@ -817,6 +811,21 @@ def capture_with_selected_slots(
         page_number = capture.get("page_number")
         if not isinstance(page_number, int):
             continue
+
+        # 表格：不截图，只保留元数据供后续生成文字描述
+        if kind == "table":
+            table_capture = dict(capture)
+            table_capture["file_name"] = ""
+            table_capture["query"] = str(capture.get("query", ""))
+            table_capture["query_variants"] = capture.get("query_variants", [])
+            table_capture["semantic_slot"] = str(capture.get("semantic_slot", ""))
+            table_capture["label_text"] = capture.get("label_text")
+            table_capture["language_hint"] = capture.get("language_hint")
+            table_capture["score"] = capture.get("score")
+            table_capture["selection_rank"] = capture.get("selection_rank")
+            captured.append(add_value_metadata(table_capture))
+            continue
+
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
         output = asset_dir / f"{kind}-{kind_counts[kind]:02d}.png"
         if str(output) in seen_outputs:
@@ -854,7 +863,7 @@ def capture_with_selected_slots(
         seen_outputs.add(str(output))
 
     return captured, {
-        "selection_deficit": build_selection_deficit(selected, TARGET_FIGURE_QUOTA, TARGET_TABLE_QUOTA),
+        "selection_deficit": build_selection_deficit(selected, TARGET_FIGURE_QUOTA),
         "capture_errors": capture_errors or None,
     }
 
@@ -867,32 +876,18 @@ def build_figure_embeds(slug: str, captures: list[dict[str, object]]) -> list[st
         snippet = re.sub(r"\s+", " ", str(capture.get("snippet", "")).strip())[:120].rstrip(" ,.;:-")
         label = caption_label_for_capture(capture)
 
-        if kind == "table":
-            if bucket == "comparison-table":
-                label = "对比表"
-                body = "优先帮助读者快速看清方法与基线、数据集或指标之间的差异"
-            elif bucket == "performance-table":
-                label = "性能表"
-                body = "优先呈现精度、速度、延迟或资源开销等结果"
-            elif bucket == "ablation-table":
-                label = "消融表"
-                body = "优先说明模块增删、配置变化或组件贡献"
-            else:
-                label = "通用表"
-                body = "先作为结果汇总或实验补充来读，便于补全证据链"
+        if bucket == "architecture/training-framework":
+            label = "方法图"
+            body = "优先帮助理解整体架构、模块边界与信息流"
+        elif bucket == "loss/objective/anomaly-score":
+            label = "损失/目标图"
+            body = "优先解释训练目标、约束项或异常分数构成"
+        elif bucket == "trade-off/performance":
+            label = "权衡图"
+            body = "优先展示效果、效率或鲁棒性的变化趋势"
         else:
-            if bucket == "architecture/training-framework":
-                label = "方法图"
-                body = "优先帮助理解整体架构、模块边界与信息流"
-            elif bucket == "loss/objective/anomaly-score":
-                label = "损失/目标图"
-                body = "优先解释训练目标、约束项或异常分数构成"
-            elif bucket == "trade-off/performance":
-                label = "权衡图"
-                body = "优先展示效果、效率或鲁棒性的变化趋势"
-            else:
-                label = "通用图"
-                body = "先作为整体方法或实验证据来读"
+            label = "通用图"
+            body = "先作为整体方法或实验证据来读"
 
         detail = f"{label}：{body}。"
         if snippet:
@@ -912,11 +907,7 @@ def build_figure_embeds(slug: str, captures: list[dict[str, object]]) -> list[st
     )
     for capture in ordered_captures:
         rank = capture.get("selection_rank")
-        prefix = (
-            f"入选第 {rank} 项图示"
-            if str(capture.get("kind", "figure")) == "figure"
-            else f"入选第 {rank} 项表格"
-        )
+        prefix = f"入选第 {rank} 项图示" if isinstance(rank, int) else "入选图示"
         caption_text = caption_label_for_capture(capture)
         embeds.append(
             f"- ![[papers/{slug}/{capture['file_name']}]]\n- {prefix}（{caption_text}）：{describe_capture(capture)}"
@@ -924,10 +915,137 @@ def build_figure_embeds(slug: str, captures: list[dict[str, object]]) -> list[st
     return embeds
 
 
+def build_table_descriptions(
+    slug: str, captures: list[dict[str, object]], max_tables: int = 1
+) -> str:
+    table_captures = [
+        cap for cap in captures
+        if str(cap.get("kind", "")) == "table"
+    ]
+    if not table_captures or max_tables <= 0:
+        return (
+            "> [!todo]\n"
+            "> 本文未自动发现表格，可手动从 PDF 对应页码附近补录。"
+        )
+
+    # 按 snippet 长度降序（信息量优先），相同则 value_score 降序
+    sorted_tables = sorted(
+        table_captures,
+        key=lambda cap: (
+            -len(str(cap.get("snippet", ""))),
+            -preview_score(cap.get("value_score")),
+        ),
+    )
+    selected = sorted_tables[:max_tables]
+
+    descriptions: list[str] = []
+    for idx, cap in enumerate(selected, start=1):
+        query = str(cap.get("query", "Table ?"))
+        page_number = cap.get("page_number")
+        page_hint = f"第{page_number}页" if isinstance(page_number, int) else "未知页码"
+        snippet = str(cap.get("snippet", ""))
+
+        table_md = _parse_snippet_to_markdown_table(snippet, query, page_hint)
+        descriptions.append(table_md)
+
+    return "\n\n".join(descriptions)
+
+
+_SKIP_LINE_PATTERNS = [
+    re.compile(r"Pattern Recognition", re.IGNORECASE),
+    re.compile(r"^\d+\s*$", re.IGNORECASE),
+    re.compile(r"contents lists available", re.IGNORECASE),
+]
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_JOURNAL_META = re.compile(
+    r"(Received|Accepted|Available online|https?://|doi:|journal homepage)",
+    re.IGNORECASE,
+)
+
+
+def _parse_snippet_to_markdown_table(
+    snippet: str, query: str, page_hint: str
+) -> str:
+    clean = _CONTROL_CHARS.sub("", snippet)
+    lines = [
+        line for line in clean.splitlines()
+        if line.strip()
+        and not any(pat.search(line) for pat in _SKIP_LINE_PATTERNS)
+        and not _JOURNAL_META.search(line)
+    ]
+
+    all_rows: list[list[str]] = []
+    for line in lines:
+        cols = [c.strip() for c in re.split(r"\s{2,}", line) if c.strip()]
+        if cols:
+            all_rows.append(cols)
+
+    # 如果只拆出 1 行且列数过多（pdftotext 把多行数据拼到一行），
+    # 尝试按 每 7~8 个 token 切分为逻辑行（VAD 论文表格通常 Method|Ref|Venue|Object|数据列...）
+    if len(all_rows) == 1 and len(all_rows[0]) > 15:
+        cells = all_rows[0]
+        # 找 header 行结束位置：第一个纯数字/符号 token 出现前
+        header_end = 0
+        for i, c in enumerate(cells):
+            if re.match(r"^-?[\d.]+%?$", c) or c in {"–", "—", "-", "✓"}:
+                header_end = i
+                break
+        header = cells[:header_end] if header_end > 1 else cells[:8]
+        body_cells = cells[header_end:] if header_end > 1 else cells[8:]
+        rows = [header] + [
+            body_cells[i : i + len(header)]
+            for i in range(0, len(body_cells), len(header))
+        ]
+        all_rows = [r for r in rows if r]
+
+    data_rows: list[list[str]] = []
+    for row in all_rows:
+        numeric_count = sum(
+            1 for c in row
+            if re.match(r"^-?[\d.]+%?$", c) or c in {"–", "—", "-", "✓"}
+        )
+        if len(row) >= 3 and numeric_count >= 2:
+            data_rows.append(row)
+
+    if len(data_rows) < 2:
+        clean_snippet = re.sub(r"\s+", " ", clean).strip()[:300]
+        return (
+            f"### {query}（{page_hint}）\n"
+            f"> [!warning] pdftotext 未能拆分为列，保留原文块待人工整理。\n"
+            f"\n"
+            f"```text\n"
+            f"{clean_snippet}\n"
+            f"```\n"
+            f"\n"
+            f"- **来源**: {page_hint} {query}"
+        )
+
+    max_cols = max(len(row) for row in data_rows)
+    header = "| " + " | ".join(f"列{i + 1}" for i in range(max_cols)) + " |"
+    sep = "|" + "|".join(" --- " for _ in range(max_cols)) + "|"
+    body_rows = [
+        "| " + " | ".join(row + [""] * (max_cols - len(row))) + " |"
+        for row in data_rows
+    ]
+
+    return (
+        f"### {query}（{page_hint}）\n"
+        f"{header}\n"
+        f"{sep}\n"
+        + "\n".join(body_rows)
+        + f"\n\n"
+        f"- **来源**: {page_hint} {query}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="生成论文深读草稿与图示骨架")
     parser.add_argument("pdf")
     parser.add_argument("--max-figures", type=int, default=3)
+    parser.add_argument("--max-candidates", type=int, default=None, help="候选池阶段最多预览多少个正文图表候选；默认不限制")
+    parser.add_argument("--max-tables", type=int, default=1, help="source 页最多生成几张表格的 Markdown 描述；0 表示关闭；默认 1")
+    parser.add_argument("--preview-timeout", type=float, default=None, help="单个候选预览的秒级软超时；默认不限制")
+    parser.add_argument("--progress", action="store_true", help="向 stderr 输出候选池/截图进度，避免长时间无输出")
     parser.add_argument("--engine", choices=["auto", "pdftotext", "pymupdf"], default="auto")
     parser.add_argument(
         "--selection-mode",
@@ -971,7 +1089,12 @@ def main() -> None:
     text_cache.write_text(text, encoding="utf-8")
 
     if args.selection_mode == "agent":
-        ordered_candidates, skipped_candidates = build_capture_pool(pdf_path)
+        ordered_candidates, skipped_candidates = build_capture_pool(
+            pdf_path,
+            max_candidates=args.max_candidates,
+            preview_timeout=args.preview_timeout,
+            progress=args.progress,
+        )
         rule_candidates, rule_meta = apply_rule_selection(ordered_candidates, args.max_figures)
         recommended_slots = [str(candidate.get("semantic_slot", "")) for candidate in rule_candidates]
 
@@ -1015,7 +1138,14 @@ def main() -> None:
         skipped_candidates_payload = skipped_candidates or None
         selected_by = "agent"
     else:
-        captures, selection_meta = auto_capture_figures(pdf_path, asset_dir, args.max_figures)
+        captures, selection_meta = auto_capture_figures(
+            pdf_path,
+            asset_dir,
+            args.max_figures,
+            max_candidates=args.max_candidates,
+            preview_timeout=args.preview_timeout,
+            progress=args.progress,
+        )
         selection_deficit_payload = selection_meta.get("selection_deficit") if isinstance(selection_meta, dict) else selection_meta
         capture_errors = selection_meta.get("capture_errors") if isinstance(selection_meta, dict) else None
         skipped_candidates_payload = selection_meta.get("skipped_candidates") if isinstance(selection_meta, dict) else None
@@ -1024,7 +1154,8 @@ def main() -> None:
         selected_by = "rule"
 
     figure_embeds = build_figure_embeds(slug, captures)
-    ensure_source_page(source_path, slug, pdf_path.name, today, metadata, figure_embeds, captures)
+    table_descriptions = build_table_descriptions(slug, captures, args.max_tables)
+    ensure_source_page(source_path, slug, pdf_path.name, today, metadata, figure_embeds, captures, table_descriptions)
     index_changed = add_source_to_index(source_name, "论文深读草稿页，预留关键图示、公式空位与代码对照线索。")
     log_changed = append_log(today, source_name, asset_dir)
 

@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: 将 raw/ 目录原始资料编译到 wiki/（sources/entities/concepts），完成后归档到 raw/09-archive/。支持 `/ingest`（扫描所有未归档文件）或 `/ingest <path>`（处理指定文件）。触发词：摄取/导入/收入资料、把论文 PDF 放入 raw/02-papers/ 生成 Obsidian 知识网络。禁止读取 raw/09-archive/。
+description: 将 raw/ 目录原始资料编译到 wiki/（sources/entities/concepts），完成后归档到 raw/09-archived/。支持 `/ingest`（扫描所有未归档文件）或 `/ingest <path>`（处理指定文件）。触发词：摄取/导入/收入资料、把论文 PDF 放入 raw/02-papers/ 生成 Obsidian 知识网络。禁止读取 raw/09-archived/。
 user-invocable: true
 ---
 
@@ -14,14 +14,14 @@ user-invocable: true
 |---|---|
 | `raw/01-articles/` | 网页剪藏 Markdown |
 | `raw/02-papers/` | 论文 PDF |
-| `raw/09-archive/` | 已处理归档（**禁止读取**） |
+| `raw/09-archived/` | 已处理归档（**禁止读取**） |
 | `wiki/sources/` | 资料摘要 |
 | `wiki/entities/` | 实体（人物/公司/工具/方法） |
 | `wiki/concepts/` | 概念（框架/方法论/理论） |
 
 ## 触发条件
 
-- `/ingest`：扫描 `raw/` 所有非 `09-archive/` 子目录
+- `/ingest`：扫描 `raw/` 所有非 `09-archived/` 子目录
 - `/ingest <path>`：仅处理指定文件
 - 用户说“摄入/导入/收入这篇文章/论文”
 
@@ -58,7 +58,9 @@ python ".agents/scripts/router.py" ingest
 - **规则直出模式**：英文论文、caption 规整、候选价值判断明显时，直接运行：
 
 ```bash
-python ".agents/scripts/paper_deep_read.py" "<pdf路径>"
+python ".agents/scripts/paper_deep_read.py" "<pdf路径>" \
+  --progress \
+  --preview-timeout 10
 ```
 
 - **agent 两阶段模式**：当满足以下任一条件时，`ingest` 应默认切到两阶段，而不是继续单阶段直出：
@@ -70,8 +72,13 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>"
 第一阶段先运行：
 
 ```bash
-python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
+python ".agents/scripts/paper_deep_read.py" "<pdf路径>" \
+  --selection-mode agent \
+  --progress \
+  --preview-timeout 10
 ```
+
+性能保护规则：候选池阶段必须带 `--progress`，避免长时间无输出；默认带 `--preview-timeout 10`，避免单个候选预览长时间占满单核 CPU。只有在用户明确要求“先快看 / 粗筛 / 机器卡顿”时，才追加 `--max-candidates N`；默认不要加候选上限，以免漏掉后文关键实验表。
 
 读取其输出中的：
 
@@ -84,6 +91,8 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
 
 ```bash
 python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent \
+  --progress \
+  --preview-timeout 10 \
   --selected-slot figure-01 \
   --selected-slot table-01
 ```
@@ -93,7 +102,7 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
 1. 调用 `paper_deep_read.py` 生成证据层（`assets/papers/{slug}/`、`source` 骨架、文本缓存）；若走 agent 两阶段，则先拿候选池再回填 `selected-slot`
 2. 在已有骨架上补：核心摘要、实体、概念、知识链接
 3. 更新 `wiki/index.md`、`wiki/log.md`
-4. 确认成功后再归档到 `raw/09-archive/`
+4. 确认成功后再归档到 `raw/09-archived/`
 
 也就是说：
 
@@ -115,7 +124,7 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
   - 可复现线索（代码/数据/权重链接）
   - Metadata：作者、年份、期刊/会议、DOI / arXiv
   - 关键图示（如模型结构图、流程图、关键结果表）
-  - 关键公式（优先 loss、异常分数、核心模块公式，转写为 LaTeX）
+  - 关键公式（优先 loss、异常分数、核心模块公式，转写为 LaTeX）→ 详见下方 **公式转写** 子节
   - 代码对照线索（公式/图示最可能映射到代码仓的哪些模块）
 
 #### Metadata 固定规则
@@ -153,6 +162,36 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
 - 关键图示 / 关键公式的作用说明
 - 代码对照线索中的 `loss`、`score`、`module` 映射判断
 
+#### 公式转写（论文模式默认执行）
+
+`paper_deep_read.py` 生成的 source 骨架里，公式区域是占位符（`% 在这里补充...`），附带了原文定位线索（页码 + Fig/Table 引用）。ingest 阶段必须把这个占位符**升级为真实 LaTeX**。
+
+**工作流：**
+
+1. 读取 `paper_deep_read.py` 已生成的文本缓存：`.cache/agents/papers/{slug}/source_text.txt`
+2. 对每个公式槽位，根据其 `原文定位` 线索（如"第 4 页 3.1 节公式 (1)~(4)"）在缓存文本中定位公式附近的自然语言描述
+3. 从自然语言描述转写为 LaTeX：
+   - 损失函数 / 目标函数 → `\mathcal{L}`、`\mathbb{E}`、`\|\cdot\|^2`
+   - 异常分数 → `S(I_t)`、`\text{PSNR}`、归一化公式
+   - 注意力模块 / 约束项 → `\text{softmax}`、`\otimes`、矩阵运算
+4. 补全 `原文描述` 行（摘一句原文中紧邻公式的自然语言，方便回查）
+5. 补全 `解释` 行（一句话说明该公式的语义作用）
+6. 转写完成后，`原文定位` / `原文描述` / `解释` / `证据` 四行保留，作为抗幻觉锚点
+
+**转写质量规则：**
+
+| 情况 | 动作 |
+|---|---|
+| 文本缓存中能找到明确的公式描述 | 转写为 LaTeX，附页码锚点 |
+| 文本缓存中描述模糊或截断（pdftotext 的 artifacts） | 保留占位符 `%`，但在 `原文描述` 中注明"缓存文本截断，需对照原文 PDF 补写" |
+| 缓存中完全找不到对应公式 | 保留占位符，注明"未在文本缓存中找到，需人工回查 PDF" |
+| 公式涉及复杂多行对齐（如消融表的约束项） | 优先保留核心项，多行对齐标注 `待补完整形式` |
+
+**禁止：**
+- 禁止从 PDF metadata 或文件名推测公式
+- 禁止将无原文依据的推断公式写成确定事实
+- 禁止删除 `paper_deep_read.py` 生成的 `原文定位` / `原文描述` 行（即使公式已补全）
+
 ### 步骤 3：创建 source 页
 
 #### 通用模板（`wiki/sources/摘要-{slug}.md`）
@@ -162,7 +201,7 @@ python ".agents/scripts/paper_deep_read.py" "<pdf路径>" --selection-mode agent
 title: "摘要-{slug}"
 type: source
 tags: [来源]
-sources: ["raw/09-archive/{文件名}"]
+sources: ["raw/09-archived/{文件名}"]
 last_updated: YYYY-MM-DD
 ---
 
@@ -211,19 +250,39 @@ $$
 #### source 强制规则
 
 - `sources` 必为数组
-- 归档后路径必须指向 `raw/09-archive/`
+- 归档后路径必须指向 `raw/09-archived/`
 - frontmatter 保持极简（仅 5 字段）
 - metadata 只放正文 `## Metadata`，不放 frontmatter
 
 ### 步骤 4：知识网络化（entity / concept）
 
+#### Concept 复用优先原则
+
+`ingest` 的目标不是为每篇资料制造新概念页，而是把新资料编译进已有知识网络。创建新 `concept` 是最后手段。
+
+在新建任何 `concept` 前，必须先执行以下检查：
+
+1. 先检索 `wiki/concepts/`、`wiki/index.md` 完整注册表，以及当前 source 可能关联的已有页面。
+2. 优先寻找语义等价、上下位关系或可合并的既有 `concept`：
+   - 同义词 / 翻译不同：复用已有 `concept`，并在页面中补充别名。
+   - 新资料只是已有概念的一个案例：不要新建 `concept`，增量写入已有 `concept`。
+   - 新资料是已有概念的子机制：优先写入已有 `concept` 的“子机制 / 相关方法”段落；只有该子机制会被多篇资料复用时才新建独立 `concept`。
+3. 只有同时满足以下条件，才允许新建 `concept`：
+   - 现有 `concept` 无法准确容纳该概念；
+   - 该概念具有跨资料复用价值；
+   - 它不是单篇 source 的一次性术语；
+   - 已在 `## 关联连接` 中连接至少一个已有 `concept` 或 `entity`，避免孤岛页面。
+4. 如果不确定是否该新建，默认不要新建；先把内容合并进最接近的已有 `concept`，并用一句话标注来源限定。
+
 | 条件 | 动作 |
 |---|---|
 | 提取到明确命名的方法 / 系统 | 建 `entity` |
 | 论文是 survey / tutorial | 通常不建 `entity` |
-| 概念可跨论文复用 | 建 `concept` |
+| 已有 `concept` 可容纳新知识 | 优先增量合并，不新建 |
+| 只是已有 `concept` 的案例 / 变体 / 子机制 | 合并进已有 `concept` |
+| 概念可跨多篇资料复用，且现有 `concept` 无法容纳 | 才新建 `concept` |
 | 只是一次性短语 | 不建 `concept` |
-| 页面不存在 | 创建 |
+| 页面不存在 | 先确认无法复用后再创建 |
 | 页面已存在 | 增量合并 |
 | 发现知识冲突 | 立即暂停并报告 |
 
@@ -234,7 +293,7 @@ $$
 title: "页面名称"
 type: entity | concept
 tags: [标签]
-sources: ["raw/09-archive/{文件名}"]
+sources: ["raw/09-archived/{文件名}"]
 last_updated: YYYY-MM-DD
 ---
 
@@ -281,6 +340,8 @@ last_updated: YYYY-MM-DD
 - `paper_deep_read.py --selection-mode agent` 返回的 `candidate_pool` 明显比规则模式更丰富
 - `selection_deficit` 显示规则模式在高价值表格上存在明显缺额，而该论文又依赖表格证据支撑结论
 - `skipped_candidates` 显示大量候选在某些 query 变体上失败，需要 agent 根据上下文做更稳的保留决策
+
+短规则：agent 两阶段 deep read 默认使用 `--progress --preview-timeout 10`；仅在粗筛或机器负载敏感时加 `--max-candidates N`。
 
 升级后的收口规则：
 
@@ -347,7 +408,7 @@ python ".agents/scripts/write_log.py" \
 
 ### 步骤 6：归档 + 路径一致性
 
-确认 `source / entity / concept / index / log` 全部就绪后，移动源文件到 `raw/09-archive/`。
+确认 `source / entity / concept / index / log` 全部就绪后，移动源文件到 `raw/09-archived/`。
 
 #### 归档规则
 
@@ -373,7 +434,7 @@ python ".agents/scripts/write_log.py" \
 
 ## 强制约束
 
-- 禁止读取 `raw/09-archive/` 下任何文件
+- 禁止读取 `raw/09-archived/` 下任何文件
 - 禁止归档 PDF 提取失败的源文件
 - 禁止修改源文件内部文字
 - 禁止将论文 metadata 塞入 frontmatter
@@ -393,4 +454,5 @@ python ".agents/scripts/write_log.py" \
 - [ ] `index.md` 完整注册表已登记，导航层已判断是否补录
 - [ ] `log.md` 已 append
 - [ ] `wiki/` 中无 `raw/02-papers/` 的 `sources:` 引用
+- [ ] 公式占位符已根据文本缓存转写为 LaTeX，无法转写的已标注原因
 - [ ] PDF 提取失败已标注且未归档

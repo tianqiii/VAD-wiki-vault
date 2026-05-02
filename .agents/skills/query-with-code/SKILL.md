@@ -244,7 +244,7 @@ python ".agents/scripts/write_synthesis.py" \
   --summary "<一句话总结>" \
   --content-file "<tmp-content-file>" \
   --tag "综合分析" \
-  --source "raw/09-archive/foo.pdf" \
+  --source "raw/09-archived/foo.pdf" \
   --related "PaperEntity" \
   --related "ConceptName" \
   --log-summary "保存 <主题> 代码对照综合页"

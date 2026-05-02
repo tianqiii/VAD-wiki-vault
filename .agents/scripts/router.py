@@ -16,8 +16,22 @@ import json
 import sys
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = SCRIPT_DIR.parents[1]
+
+def find_workspace_root() -> Path:
+    """识别当前 vault 根目录，避免符号链接脚本把根目录解析到模板仓库。"""
+    candidates = [Path.cwd(), *Path.cwd().parents]
+    script_path = Path(__file__)
+    if not script_path.is_absolute():
+        script_path = Path.cwd() / script_path
+    candidates.extend(script_path.parents)
+    candidates.extend(script_path.resolve().parents)
+    for candidate in candidates:
+        if (candidate / "wiki").is_dir() and (candidate / "raw").is_dir():
+            return candidate
+    return script_path.resolve().parents[2]
+
+
+WORKSPACE_ROOT = find_workspace_root()
 VALID_SUBCOMMANDS = {"ingest", "query", "lint", "query-with-code", "paper-deep-reading", "help"}
 
 

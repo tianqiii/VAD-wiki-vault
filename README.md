@@ -18,7 +18,7 @@
 │   ├── 🎓 02-papers/            ← 论文、深度研报、PDF文档
 │   ├── 🎙️ 03-transcripts/       ← 视频/播客转录文本、会议记录
 │   ├── 💡 04-meeting_notes/     ← 头脑风暴或会议纪要等
-│   └── 🗃️ 09-archive/           ← 已归档区：`/ingest` 执行成功后，源文件自动移动至此
+│   └── 🗃️ 09-archived/           ← 已归档区：`/ingest` 执行成功后，源文件自动移动至此
 │
 ├── 🧠 wiki/                     ← 知识编译输出层（LLM 拥有完全写权限，人类阅读层）
 │   ├── 📑 index.md              ← 全局索引入口：上层是导航层（快速入口/按主题浏览），下层是完整注册表
@@ -32,7 +32,7 @@
 │
 └── ⚙️ .agents/                  ← Claude Code 官方配置目录
     └── 🛠️ skills/               ← Agent Skill中心
-        ├── ⚙️ ingest/           ← 自定义：编译收件箱 raw 文件到 wiki，并执行 09-archive 归档
+        ├── ⚙️ ingest/           ← 自定义：编译收件箱 raw 文件到 wiki，并执行 09-archived 归档
         ├── 📚 paper-deep-reading/ ← 自定义：深读论文 PDF，抽图到 assets，沉淀公式空位/LaTeX 草稿与代码对照线索，并为 query-with-code 预埋结构化证据
         ├── 🔎 query/            ← 自定义：优先通过 JDocMunch 做 section-level 检索，再精读少量候选段落/页面并生成带双链引用的回答；`index.md` 仅作为 fallback
         ├── 🔎 query-with-code/  ← 自定义：可以对代码和对应论文进行分析

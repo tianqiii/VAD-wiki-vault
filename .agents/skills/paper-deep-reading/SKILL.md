@@ -190,7 +190,7 @@ python ".agents/scripts/pdf_tool.py" snapshot-query <pdf> "Table II" --output /t
 - 输入优先级：
   1. `raw/02-papers/*.pdf`
   2. 用户明确给出的本地 PDF 绝对路径
-  3. 已归档论文对应的 `wiki/sources/` 页面（只做补全，不回读 `raw/09-archive/`）
+  3. 已归档论文对应的 `wiki/sources/` 页面（只做补全，不回读 `raw/09-archived/`）
 - `raw/` 视为事实层：**禁止修改 PDF 正文**。
 - 图片产物写入 `assets/`；知识产物写入 `wiki/`。
 

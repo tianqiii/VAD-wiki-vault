@@ -38,7 +38,6 @@ PRESET_MARGINS: dict[str, tuple[float, float, float, float]] = {
     "theorem": (24.0, 16.0, 24.0, 64.0),
     "figure": (36.0, 32.0, 36.0, 180.0),
     "figure-column": (20.0, 20.0, 20.0, 40.0),
-    "table": (28.0, 16.0, 28.0, 140.0),
     "equation": (18.0, 12.0, 18.0, 42.0),
 }
 
@@ -47,7 +46,6 @@ INFERRED_MARGINS: dict[str, tuple[float, float, float, float]] = {
     "theorem": (10.0, 10.0, 10.0, 18.0),
     "figure": (16.0, 16.0, 16.0, 20.0),
     "figure-column": (10.0, 12.0, 10.0, 18.0),
-    "table": (12.0, 12.0, 12.0, 32.0),
 }
 
 MAX_VERTICAL_GAP: dict[str, float] = {
@@ -55,7 +53,6 @@ MAX_VERTICAL_GAP: dict[str, float] = {
     "theorem": 220.0,
     "figure": 340.0,
     "figure-column": 260.0,
-    "table": 520.0,
 }
 
 
@@ -113,6 +110,16 @@ class SnapshotCandidate:
 class OCRLine:
     rect: pymupdf.Rect
     text: str
+
+
+TEXT_BLOCK_CACHE: dict[tuple[int, int], list[TextBlock]] = {}
+VISUAL_RECT_CACHE: dict[tuple[int, int], list[pymupdf.Rect]] = {}
+
+
+def page_cache_key(page: pymupdf.Page) -> tuple[int, int]:
+    parent_name = str(getattr(page.parent, "name", ""))
+    page_number = page.number
+    return (hash(parent_name), page_number if isinstance(page_number, int) else -1)
 
 
 def normalize_token(text: str) -> str:
@@ -418,6 +425,10 @@ def ocr_hits_from_lines(
 
 
 def get_text_blocks(page: pymupdf.Page) -> list[TextBlock]:
+    cache_key = page_cache_key(page)
+    cached = TEXT_BLOCK_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     blocks: list[TextBlock] = []
     raw_blocks = cast(
         list[tuple[float, float, float, float, str, int, int]], page.get_text("blocks")
@@ -432,6 +443,7 @@ def get_text_blocks(page: pymupdf.Page) -> list[TextBlock]:
                 text=cleaned,
             )
         )
+    TEXT_BLOCK_CACHE[cache_key] = blocks
     return blocks
 
 
@@ -539,6 +551,10 @@ def select_caption_rect(
 
 
 def collect_visual_rects(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    cache_key = page_cache_key(page)
+    cached = VISUAL_RECT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     rects: list[pymupdf.Rect] = []
     page_area = max(1.0, page.rect.width * page.rect.height)
 
@@ -573,6 +589,7 @@ def collect_visual_rects(page: pymupdf.Page) -> list[pymupdf.Rect]:
             continue
         if is_reasonable_visual_rect(rect):
             rects.append(rect)
+    VISUAL_RECT_CACHE[cache_key] = rects
     return rects
 
 
@@ -681,9 +698,139 @@ def score_snapshot_candidate(
     return score
 
 
+def _simple_spatial_cluster(
+    rects: list[pymupdf.Rect], eps: float = 15.0, min_samples: int = 2
+) -> list[list[pymupdf.Rect]]:
+    if not rects:
+        return []
+    assigned: list[bool] = [False] * len(rects)
+    clusters: list[list[pymupdf.Rect]] = []
+    for i in range(len(rects)):
+        if assigned[i]:
+            continue
+        cluster: list[pymupdf.Rect] = [rects[i]]
+        assigned[i] = True
+        changed = True
+        while changed:
+            changed = False
+            for j in range(len(rects)):
+                if assigned[j]:
+                    continue
+                for member in cluster:
+                    if abs(rects[j].x0 - member.x0) < eps and abs(rects[j].y0 - member.y0) < eps * 2 and abs(rects[j].x1 - member.x1) < eps and abs(rects[j].y1 - member.y1) < eps * 2:
+                        cluster.append(rects[j])
+                        assigned[j] = True
+                        changed = True
+                        break
+        if len(cluster) >= min_samples:
+            clusters.append(cluster)
+    return clusters
+
+
+def _find_caption_for_region(
+    page: pymupdf.Page, region: pymupdf.Rect, number: int
+) -> pymupdf.Rect | None:
+    search_zone = pymupdf.Rect(
+        region.x0 - 36.0,
+        region.y1,
+        region.x1 + 36.0,
+        min(region.y1 + 200.0, page.rect.y1),
+    )
+    best_hit: pymupdf.Rect | None = None
+    best_distance = float("inf")
+    for prefix in ("Fig.", "Figure", "FIG.", "FIGURE"):
+        query = f"{prefix} {number}"
+        for hit in page.search_for(query, clip=search_zone):
+            distance = hit.y0 - region.y1
+            if distance < 50.0 and distance < best_distance:
+                best_distance = distance
+                best_hit = hit
+    return best_hit
+
+
+def find_captioned_image(
+    page: pymupdf.Page, query_number: int, page_index: int
+) -> SnapshotCandidate | None:
+    images = page.get_image_info()
+    if not images:
+        return None
+    matching_rects: list[pymupdf.Rect] = []
+    caption_hit: pymupdf.Rect | None = None
+    for img_info in images:
+        img_rect = pymupdf.Rect(*img_info["bbox"])
+        if img_rect.width < 40 or img_rect.height < 40:
+            continue
+        hit = _find_caption_for_region(page, img_rect, query_number)
+        if hit is None:
+            continue
+        matching_rects.append(img_rect)
+        if caption_hit is None or hit.y0 < caption_hit.y0:
+            caption_hit = hit
+    if not matching_rects or caption_hit is None:
+        return None
+    figure_region = union_rects(matching_rects)
+    if figure_region is None:
+        return None
+    score = 500.0 + (figure_region.width * figure_region.height) / max(1.0, page.rect.width * page.rect.height) * 200.0
+    score += 100.0 if caption_hit.y0 - figure_region.y1 < 120 else 0
+    return SnapshotCandidate(
+        page_index=page_index,
+        query=f"Fig. {query_number}",
+        base_rect=caption_hit,
+        inferred_rect=figure_region,
+        score=score,
+    )
+
+
+def find_figure_by_drawings(
+    page: pymupdf.Page, query_number: int, page_index: int
+) -> SnapshotCandidate | None:
+    drawings = page.get_drawings()
+    if not drawings:
+        return None
+    rects: list[pymupdf.Rect] = []
+    for drawing in drawings:
+        rect = cast(pymupdf.Rect | None, drawing.get("rect"))
+        if rect is not None and not rect.is_empty and rect.width >= 4 and rect.height >= 4:
+            rects.append(rect)
+    if not rects:
+        return None
+    clusters = _simple_spatial_cluster(rects, eps=15.0, min_samples=2)
+    page_area = max(1.0, page.rect.width * page.rect.height)
+    for cluster in clusters:
+        cluster_union = union_rects(cluster)
+        if cluster_union is None:
+            continue
+        area_ratio = (cluster_union.width * cluster_union.height) / page_area
+        if area_ratio < 0.10:
+            continue
+        caption_hit = _find_caption_for_region(page, cluster_union, query_number)
+        if caption_hit is None:
+            continue
+        score = area_ratio * 200.0 + 450.0
+        return SnapshotCandidate(
+            page_index=page_index,
+            query=f"Fig. {query_number}",
+            base_rect=caption_hit,
+            inferred_rect=cluster_union,
+            score=score,
+        )
+    return None
+
+
 def choose_snapshot_candidate(
     pdf_page: pymupdf.Page, query: str, preset: str, page_index: int, mode: str = "auto"
 ) -> SnapshotCandidate | None:
+    number_match = re.search(r"(\d+)", query)
+    if number_match and preset == "figure":
+        fig_number = int(number_match.group(1))
+        candidate = find_captioned_image(pdf_page, fig_number, page_index)
+        if candidate is not None:
+            return candidate
+        candidate = find_figure_by_drawings(pdf_page, fig_number, page_index)
+        if candidate is not None:
+            return candidate
+
     best_candidate: SnapshotCandidate | None = None
     for variant in query_variants(query):
         matches = search_page(pdf_page, variant, mode=mode)
@@ -732,11 +879,16 @@ def build_snapshot_query_preview(
             raise ValueError(f"未找到 query: {query}")
 
         pdf_page = doc[best_candidate.page_index]
+        inferred = best_candidate.inferred_rect
         clip = (
-            expand_inferred_rect(best_candidate.inferred_rect, pdf_page.rect, preset)
-            if best_candidate.inferred_rect is not None
+            expand_inferred_rect(inferred, pdf_page.rect, preset)
+            if inferred is not None
             else expand_rect(best_candidate.base_rect, pdf_page.rect, preset)
         )
+        if inferred is not None and (
+            clip.width < pdf_page.rect.width * 0.3 or clip.height < 80.0
+        ):
+            clip = pdf_page.rect
         preview = best_candidate.to_preview_dict(preset)
         preview["clip"] = rect_to_list(clip)
         preview["snippet"] = build_snippet(pdf_page, best_candidate.base_rect)
