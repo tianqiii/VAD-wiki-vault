@@ -18,6 +18,8 @@ import re
 import sys
 from pathlib import Path
 
+from wiki_tags import load_pages
+
 
 STOPWORDS = {
     "的", "和", "与", "及", "是", "什么", "如何", "为什么", "哪些", "哪个", "对比", "比较", "一下",
@@ -82,9 +84,15 @@ def parse_index(index_text: str) -> list[dict]:
 def score_entry(entry: dict, query: str, query_tokens: list[str]) -> tuple[float, list[str]]:
     haystack_title = entry["title"].lower()
     haystack_summary = entry["summary"].lower()
-    haystack = f"{haystack_title} {haystack_summary}"
+    haystack_tags = " ".join(entry.get("tags", [])).lower()
+    haystack = f"{haystack_title} {haystack_summary} {haystack_tags}"
     score = 0.0
     reasons: list[str] = []
+
+    filter_tag_matches = entry.get("filter_tag_matches", [])
+    if filter_tag_matches:
+        score += 2.5 * len(filter_tag_matches)
+        reasons.append("过滤tag命中:" + ",".join(filter_tag_matches))
 
     if query.lower() in haystack:
         score += 8.0
@@ -97,6 +105,9 @@ def score_entry(entry: dict, query: str, query_tokens: list[str]) -> tuple[float
         elif token in haystack_summary:
             score += 1.8
             reasons.append(f"摘要命中:{token}")
+        elif token in haystack_tags:
+            score += 2.2
+            reasons.append(f"tag命中:{token}")
 
     section_weight = SECTION_WEIGHTS.get(entry["section"], 1.0)
     score *= section_weight
@@ -111,6 +122,9 @@ def main() -> None:
     parser.add_argument("--index-path", required=True)
     parser.add_argument("--query", required=True)
     parser.add_argument("--top-k", type=int, default=8)
+    parser.add_argument("--wiki-dir", help="wiki 目录；提供后可按 frontmatter type/tag 过滤")
+    parser.add_argument("--type", action="append", default=[], choices=("source", "entity", "concept", "synthesis"), help="按页面 type 过滤；可重复")
+    parser.add_argument("--tag", action="append", default=[], help="按 frontmatter tag 过滤；可重复，OR 语义")
     args = parser.parse_args()
 
     index_path = Path(args.index_path).resolve()
@@ -120,6 +134,23 @@ def main() -> None:
 
     index_text = index_path.read_text(encoding="utf-8")
     entries = parse_index(index_text)
+    wiki_dir = Path(args.wiki_dir).resolve() if args.wiki_dir else index_path.parent
+    page_meta = {record.page: record for record in load_pages(wiki_dir)} if wiki_dir.exists() else {}
+    enriched_entries = []
+    for entry in entries:
+        record = page_meta.get(entry["title"])
+        if record:
+            entry = {**entry, "type": record.page_type, "tags": record.tags, "path": record.rel_path}
+        else:
+            entry = {**entry, "type": "", "tags": [], "path": ""}
+        if args.type and entry["type"] not in args.type:
+            continue
+        filter_tag_matches = sorted(set(args.tag) & set(entry["tags"]))
+        if args.tag and not filter_tag_matches:
+            continue
+        entry["filter_tag_matches"] = filter_tag_matches
+        enriched_entries.append(entry)
+    entries = enriched_entries
     query_tokens = tokenize(args.query)
 
     scored = []
@@ -141,6 +172,7 @@ def main() -> None:
         "index_path": str(index_path),
         "query": args.query,
         "query_tokens": query_tokens,
+        "filters": {"type": args.type, "tag": args.tag},
         "candidates": scored[: args.top_k],
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

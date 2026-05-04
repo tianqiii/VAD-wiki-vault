@@ -25,6 +25,13 @@ user-invocable: true
 
 2. **Wiki 检索：JdocMunch-first**
 
+   检索前先读取 tag 池与完整注册表摘要，用于确定材料类型与主题范围；`tags` 只做主题过滤，页面一句话摘要只从 `index.md` 的 `## 完整注册表` 获取：
+   ```bash
+   python ".agents/scripts/wiki_tags.py" --wiki-dir "<wiki_dir>" --index-path "<index_path>" --json
+   ```
+
+   先判断问题需要的材料类型：论文公式/图表/实验证据以 `sources` 为主；方法或模块身份以 `entities/concepts` 为主；融合、复现方案、差异总结以 `syntheses` 为主。再根据问题从 `tag_pool` 选择 1-N 个主题 tag，例如同时涉及视频异常检测与铁路入侵检测时同时使用 `video-anomaly-detection` 与 `railway-intrusion-detection`。
+
    检索 `wiki/sources|entities|concepts|syntheses`，调用链：`search_sections → get_section → get_section_context`。索引名必须显式唯一：当前 vault 用 `vad-vault-wiki`。若 `Repo not found`，先重建再重试；仍失败才回退。回答中说明失败的是检索层，不是 Wiki 缺失。
 
    ```python
@@ -35,14 +42,14 @@ user-invocable: true
    )
    ```
 
-   搜索顺序：论文理解/方法对照 → `sources→entities→concepts→syntheses`；公式/模块/loss/score 对照 → `sources→entities→concepts→syntheses`；方法比较/融合 → `syntheses→entities→concepts→sources`。整页 Read 限 2-4 个最相关页面。
+   搜索顺序：论文理解/方法对照 → `sources→entities→concepts→syntheses`；公式/模块/loss/score 对照 → `sources→entities→concepts→syntheses`；方法比较/融合 → `syntheses→entities→concepts→sources`。JdocMunch 检索时优先按 type 对应目录收敛，再按推断出的主题 tags 过滤或加权；整页 Read 限 2-4 个最相关页面。
 
 3. **Fallback：search_index.py**
    JdocMunch 不可用/命中为空/失真时：
    ```bash
-   python ".agents/scripts/search_index.py" --index-path "<index_path>" --query "<问题>"
+   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type source --tag video-anomaly-detection
    ```
-    取前 3-5 个候选页；仍不足才局部读 `wiki/index.md`。双重失败时声明：> 本地知识库未命中可用条目，以下将仅基于你提供的材料与代码仓库进行对照分析。不伪造知识库引用。Wiki 有相关页面时必须用 `[[wikilink]]` 引用。
+    依据问题替换或重复传入 `--type` / `--tag`。取前 3-5 个候选页；仍不足才局部读 `wiki/index.md`。双重失败时声明：> 本地知识库未命中可用条目，以下将仅基于你提供的材料与代码仓库进行对照分析。不伪造知识库引用。Wiki 有相关页面时必须用 `[[wikilink]]` 引用。
 
 4. **代码入口定位**
    本地代码：找入口/配置/模型/数据/训练/评估目录，沿调用链分析。远程仓库：先读 README 和目录结构。检查表：train/eval/infer 入口、yaml/json/argparse 配置、model/backbone/head/loss、dataset/dataloader/transforms、metric/eval loop。
@@ -101,13 +108,14 @@ user-invocable: true
 
 ## 高价值固化与日志
 
-回答有复用价值时询问：> 是否需要保存到 `wiki/syntheses/`？
+回答超过 2 段或有复用价值时，询问用户：
+> 这是一个有价值的总结，是否需要我将其保存到 `wiki/syntheses/` 目录？
 
 同意后：
 ```bash
 python ".agents/scripts/write_synthesis.py" \
   --workspace-root "<root>" --slug "<slug>" --summary "<一句话>" \
-  --content-file "<tmp>" --tag "综合分析" \
+  --content-file "<tmp>" --tag "<topic-tag>" \
   --source "raw/09-archived/foo.pdf" \
   --related "Entity" --related "Concept" \
   --log-summary "保存 <主题> 代码对照综合页"
@@ -116,3 +124,11 @@ python ".agents/scripts/write_synthesis.py" \
 ```bash
 python ".agents/scripts/write_log.py" --log-path "<log_path>" --action query --summary "<简述>" --detail "输出=<引用列表>"
 ```
+
+## 收尾
+
+**落盘后运行确定性底座检查**
+```bash
+python ".agents/scripts/lint.py" --wiki-dir "<wiki_dir>" --raw-dir "<raw_dir>" --json
+```
+   以脚本 JSON 为事实来源；不要在脚本已有结果之外重复铺读全库。脚本退出码 `1` 表示存在 P0，不是工具失败。

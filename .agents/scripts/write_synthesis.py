@@ -36,6 +36,11 @@ def normalize_slug(slug: str) -> str:
     return normalized
 
 
+def validate_tag(tag: str) -> None:
+    if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", tag):
+        raise SystemExit(f"frontmatter tag 必须是 kebab-case: {tag}")
+
+
 def quote_yaml(value: str) -> str:
     escaped = value.replace('"', '\\"')
     return f'"{escaped}"'
@@ -98,6 +103,10 @@ def main() -> None:
         raise SystemExit("正文内容不能为空")
 
     normalized_tags = [tag.strip() for tag in args.tag if tag.strip()]
+    if not normalized_tags:
+        raise SystemExit("至少需要提供一个 frontmatter tag")
+    for tag in normalized_tags:
+        validate_tag(tag)
     normalized_sources = [source.strip() for source in args.source if source.strip()]
     normalized_related = [page.strip() for page in args.related if page.strip()]
 

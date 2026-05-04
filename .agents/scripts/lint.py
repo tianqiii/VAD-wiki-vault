@@ -10,6 +10,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from wiki_tags import collect_tag_issues
+
 WIKI_DIR: Path
 RAW_DIR: Path
 
@@ -190,6 +192,7 @@ def run_checks() -> list[dict]:
     pages = get_pages()
     issues = []
     issues += check_frontmatter(pages)
+    issues += collect_tag_issues(WIKI_DIR, WIKI_DIR / "index.md")
     issues += check_relation_section(pages)
     issues += check_broken_links(pages)
     issues += check_orphans(pages)

@@ -377,7 +377,7 @@ def build_new_source(
     return f'''---
 title: "摘要-{title_slug}"
 type: source
-tags: [来源, 论文, 深读草稿]
+tags: [needs-topic-tag]
 sources: ["raw/09-archived/{pdf_name}"]
 last_updated: {today}
 ---

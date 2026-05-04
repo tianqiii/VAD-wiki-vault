@@ -24,9 +24,21 @@ user-invocable: true
 
 2. **主路径：JdocMunch-first**
 
+   检索前先判断问题需要的材料类型，再推断相关 tags：
+   - 方法/系统/工具/人物 → `entities` 为主，必要时补 `concepts/sources`。
+   - 概念、方法谱系、任务定义、对比框架 → `concepts/syntheses` 为主。
+   - 论文出处、实验、图表、公式、证据锚点 → `sources` 为主。
+   - 复杂综合、路线图、方案生成 → `syntheses` 为主，再回查 `entities/concepts/sources`。
+
+   先读取 tag 池与完整注册表摘要，得到当前可用 tags 和页面一句话描述：
+   ```bash
+   python ".agents/scripts/wiki_tags.py" --wiki-dir "<wiki_dir>" --index-path "<index_path>" --json
+   ```
+   根据问题选择 1-N 个相关 tags；如果同时涉及视频异常检测和铁路入侵检测，应同时使用 `video-anomaly-detection` 与 `railway-intrusion-detection` 或当前 tag 池中的等价现有 tag。
+
    检索 `wiki/sources|entities|concepts|syntheses`，调用链：`search_sections` → `get_section` → `get_section_context`（证据不足时补祖先链和子 section 摘要）。批量取用 `get_sections` 减少往返。必要时 `get_toc` / `get_document_outline` 按结构导航。
 
-   索引名必须显式唯一：当前 vault 用 `vad-vault-wiki`，禁止依赖默认 `local/wiki`。若 `list_repos` 可见但 `search_sections` 报 `Repo not found`，先重建索引再重试。重建仍失败才回退。回答中说明失败的是 JdocMunch 检索层，不是 Wiki 缺失。
+   索引名必须显式唯一：当前 vault 用 `{vault-name}-wiki`，禁止依赖默认 `local/wiki`。若 `list_repos` 可见但 `search_sections` 报 `Repo not found`，先重建索引再重试。重建仍失败才回退。回答中说明失败的是 JdocMunch 检索层，不是 Wiki 缺失。
 
    ```python
    jdocmunch_index_local(
@@ -38,7 +50,7 @@ user-invocable: true
    )
    ```
 
-   搜索顺序：主题/关系/比较 → `syntheses→entities→concepts→sources`；方法/实体 → `entities→concepts→sources→syntheses`；论文出处/实验 → `sources→entities→syntheses`；索引结构问题 → 直接到步骤 3。
+   搜索顺序：主题/关系/比较 → `syntheses→entities→concepts→sources`；方法/实体 → `entities→concepts→sources→syntheses`；论文出处/实验 → `sources→entities→syntheses`；索引结构问题 → 直接到步骤 3。JdocMunch 检索时优先按 type 对应目录收敛，再按推断出的 tags 过滤或加权；不要先读全库。
 
    升降级：不因单索引空就铺读全库；命中不足先换索引重试；辅以 TOC/outline 导航；`index/md` 排前时先收窄索引范围。
 
@@ -46,9 +58,9 @@ user-invocable: true
 
    JdocMunch 不可用、命中为空/失真、或用户问索引结构/注册表时：
    ```bash
-   python ".agents/scripts/search_index.py" --index-path "<index_path>" --query "<问题>"
+   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type concept --tag video-anomaly-detection
    ```
-   取前 3-5 个候选页；仍不足才局部读取 `wiki/index.md`。
+   依据问题替换或重复传入 `--type` / `--tag`。取前 3-5 个候选页；仍不足才局部读取 `wiki/index.md`。
 
 4. **读取深度控制**
 
@@ -95,14 +107,23 @@ python ".agents/scripts/write_synthesis.py" \
   --workspace-root "<workspace_root>" \
   --slug "<slug>" --summary "<一句话>" \
   --content-file "<tmp-file>" \
-  --tag "综合分析" \
+  --tag "<topic-tag>" \
   --source "raw/09-archived/foo.pdf" \
   --related "Entity" --related "Concept" \
   --log-summary "保存 <主题> 综合页"
 ```
+
 
 ## 日志
 
 ```bash
 python ".agents/scripts/write_log.py" --log-path "<log_path>" --action query --summary "<简述>" --detail "输出=<引用页面列表>"
 ```
+
+## 收尾
+
+**落盘后运行确定性底座检查**
+```bash
+python ".agents/scripts/lint.py" --wiki-dir "<wiki_dir>" --raw-dir "<raw_dir>" --json
+```
+   以脚本 JSON 为事实来源；不要在脚本已有结果之外重复铺读全库。脚本退出码 `1` 表示存在 P0，不是工具失败。
