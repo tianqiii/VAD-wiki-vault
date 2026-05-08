@@ -34,16 +34,16 @@ user-invocable: true
    ```bash
    python ".agents/scripts/wiki_tags.py" --wiki-dir "<wiki_dir>" --index-path "<index_path>" --json
    ```
-   根据问题选择 1-N 个相关 tags；如果同时涉及视频异常检测和铁路入侵检测，应同时使用 `video-anomaly-detection` 与 `railway-intrusion-detection` 或当前 tag 池中的等价现有 tag。
+   根据问题选择 1-N 个相关 tags；如果问题同时涉及多个主题，应同时使用多个当前 tag 池中的等价现有 tag，不要把示例 tag 当作默认值。
 
    检索 `wiki/sources|entities|concepts|syntheses`，调用链：`search_sections` → `get_section` → `get_section_context`（证据不足时补祖先链和子 section 摘要）。批量取用 `get_sections` 减少往返。必要时 `get_toc` / `get_document_outline` 按结构导航。
 
-   索引名必须显式唯一：当前 vault 用 `{vault-name}-wiki`，禁止依赖默认 `local/wiki`。若 `list_repos` 可见但 `search_sections` 报 `Repo not found`，先重建索引再重试。重建仍失败才回退。回答中说明失败的是 JdocMunch 检索层，不是 Wiki 缺失。
+   索引名必须显式唯一，禁止依赖默认 `local/wiki`。先通过 `router.py` 取得 `workspace_root/wiki_dir`，再派生 `<jdocmunch_repo>`：取 `workspace_root` 目录名，转小写，将空格与非字母数字合并为 `-`，去首尾 `-`，追加 `-wiki`。若 `list_repos` 可见但 `search_sections` 报 `Repo not found`，先用 `<wiki_dir>` 和 `<jdocmunch_repo>` 重建索引再重试。重建仍失败才回退。回答中说明失败的是 JdocMunch 检索层，不是 Wiki 缺失。
 
    ```python
    jdocmunch_index_local(
-     path="/home/nini/Documents/Vaults/VAD-vault/wiki",
-     name="vad-vault-wiki",
+     path="<wiki_dir>",
+     name="<jdocmunch_repo>",
      incremental=False,
      use_ai_summaries=False,
      use_embeddings="auto"
@@ -58,7 +58,7 @@ user-invocable: true
 
    JdocMunch 不可用、命中为空/失真、或用户问索引结构/注册表时：
    ```bash
-   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type concept --tag video-anomaly-detection
+   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type concept --tag "<topic-tag>"
    ```
    依据问题替换或重复传入 `--type` / `--tag`。取前 3-5 个候选页；仍不足才局部读取 `wiki/index.md`。
 
@@ -108,9 +108,23 @@ python ".agents/scripts/write_synthesis.py" \
   --slug "<slug>" --summary "<一句话>" \
   --content-file "<tmp-file>" \
   --tag "<topic-tag>" \
-  --source "raw/09-archived/foo.pdf" \
+  --source "<raw_source_path>" \
   --related "Entity" --related "Concept" \
   --log-summary "保存 <主题> 综合页"
+```
+
+`<raw_source_path>` 使用源材料相对 `workspace_root` 的路径；若资料已归档则指向归档路径，未归档则使用当前 raw 路径，不要写死示例 PDF。
+
+保存 synthesis 后刷新 JdocMunch 增量索引，避免后续查询找不到刚写入的综合页：
+
+```python
+jdocmunch_index_local(
+  path="<wiki_dir>",
+  name="<jdocmunch_repo>",
+  incremental=True,
+  use_ai_summaries=False,
+  use_embeddings="auto"
+)
 ```
 
 

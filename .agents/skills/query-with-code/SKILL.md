@@ -21,7 +21,8 @@ user-invocable: true
    ```bash
    python ".agents/scripts/router.py" query "<问题>"
    ```
-   读取 `wiki_dir/raw_dir/index_path/log_path`。
+   读取 `workspace_root/wiki_dir/raw_dir/index_path/log_path`。
+   同时派生 JdocMunch 索引名 `<jdocmunch_repo>`：取 `workspace_root` 目录名，转小写，将空格与非字母数字合并为 `-`，去首尾 `-`，再追加 `-wiki`。禁止写死某个 vault 的绝对路径或索引名。
 
 2. **Wiki 检索：JdocMunch-first**
 
@@ -30,15 +31,17 @@ user-invocable: true
    python ".agents/scripts/wiki_tags.py" --wiki-dir "<wiki_dir>" --index-path "<index_path>" --json
    ```
 
-   先判断问题需要的材料类型：论文公式/图表/实验证据以 `sources` 为主；方法或模块身份以 `entities/concepts` 为主；融合、复现方案、差异总结以 `syntheses` 为主。再根据问题从 `tag_pool` 选择 1-N 个主题 tag，例如同时涉及视频异常检测与铁路入侵检测时同时使用 `video-anomaly-detection` 与 `railway-intrusion-detection`。
+   先判断问题需要的材料类型：论文公式/图表/实验证据以 `sources` 为主；方法或模块身份以 `entities/concepts` 为主；融合、复现方案、差异总结以 `syntheses` 为主。再根据问题从 `tag_pool` 选择 1-N 个主题 tag；如果问题同时涉及多个主题，应同时使用多个当前 tag 池中的等价现有 tag，不要把示例 tag 当作默认值。
 
-   检索 `wiki/sources|entities|concepts|syntheses`，调用链：`search_sections → get_section → get_section_context`。索引名必须显式唯一：当前 vault 用 `vad-vault-wiki`。若 `Repo not found`，先重建再重试；仍失败才回退。回答中说明失败的是检索层，不是 Wiki 缺失。
+   检索 `wiki/sources|entities|concepts|syntheses`，调用链：`search_sections → get_section → get_section_context`（证据不足时补祖先链和子 section 摘要）。批量取用 `get_sections` 减少往返；必要时用 `get_toc` / `get_document_outline` 按结构导航。索引名必须显式唯一，禁止依赖默认 `local/wiki`。若 `Repo not found`，先用 `<wiki_dir>` 和 `<jdocmunch_repo>` 重建再重试；仍失败才回退。回答中说明失败的是检索层，不是 Wiki 缺失。
 
    ```python
    jdocmunch_index_local(
-     path="/home/nini/Documents/Vaults/VAD-vault/wiki",
-     name="vad-vault-wiki",
-     incremental=False, use_ai_summaries=False, use_embeddings="auto"
+     path="<wiki_dir>",
+     name="<jdocmunch_repo>",
+     incremental=False,
+     use_ai_summaries=False,
+     use_embeddings="auto"
    )
    ```
 
@@ -47,7 +50,7 @@ user-invocable: true
 3. **Fallback：search_index.py**
    JdocMunch 不可用/命中为空/失真时：
    ```bash
-   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type source --tag video-anomaly-detection
+   python ".agents/scripts/search_index.py" --index-path "<index_path>" --wiki-dir "<wiki_dir>" --query "<问题>" --type source --tag "<topic-tag>"
    ```
     依据问题替换或重复传入 `--type` / `--tag`。取前 3-5 个候选页；仍不足才局部读 `wiki/index.md`。双重失败时声明：> 本地知识库未命中可用条目，以下将仅基于你提供的材料与代码仓库进行对照分析。不伪造知识库引用。Wiki 有相关页面时必须用 `[[wikilink]]` 引用。
 
@@ -114,11 +117,25 @@ user-invocable: true
 同意后：
 ```bash
 python ".agents/scripts/write_synthesis.py" \
-  --workspace-root "<root>" --slug "<slug>" --summary "<一句话>" \
+  --workspace-root "<workspace_root>" --slug "<slug>" --summary "<一句话>" \
   --content-file "<tmp>" --tag "<topic-tag>" \
-  --source "raw/09-archived/foo.pdf" \
+  --source "<raw_source_path>" \
   --related "Entity" --related "Concept" \
   --log-summary "保存 <主题> 代码对照综合页"
+```
+
+`<raw_source_path>` 使用源材料相对 `workspace_root` 的路径；若资料已归档则指向归档路径，未归档则使用当前 raw 路径，不要写死示例 PDF。
+
+保存 synthesis 后刷新 JdocMunch 增量索引，避免后续 `/query` 或 `/query-with-code` 找不到刚写入的综合页：
+
+```python
+jdocmunch_index_local(
+  path="<wiki_dir>",
+  name="<jdocmunch_repo>",
+  incremental=True,
+  use_ai_summaries=False,
+  use_embeddings="auto"
+)
 ```
 
 ```bash

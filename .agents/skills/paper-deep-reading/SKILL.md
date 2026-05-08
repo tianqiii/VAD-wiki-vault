@@ -386,7 +386,8 @@ $$
 如果新增或明显增强了 wiki 页面，必须同步：
 
 1. 通过 `write_index.py` 更新 `wiki/index.md` 完整注册表
-2. `wiki/log.md` append-only 记录
+2. 通过 JdocMunch 增量刷新 `wiki/` 索引，确保后续 `/query` 能 section-level 命中新页面或新段落
+3. `wiki/log.md` append-only 记录
 
 示例：
 
@@ -397,6 +398,22 @@ python ".agents/scripts/write_index.py" \
   --page "摘要-{slug}" \
   --description "论文的核心摘要一句话。"
 ```
+
+JdocMunch 示例：
+
+```python
+jdocmunch_index_local(
+  path="<wiki_dir>",
+  name="<jdocmunch_repo>",
+  incremental=True,
+  use_ai_summaries=False,
+  use_embeddings="auto"
+)
+```
+
+其中 `<wiki_dir>` 来自 `router.py`，`<jdocmunch_repo>` 按 `workspace_root` 目录名泛化生成：小写、非字母数字转 `-`、追加 `-wiki`；禁止写死某个 vault 的绝对路径或索引名。
+
+默认使用 `incremental=True`；只有索引失真、目录结构大改或 section 检索连续异常时，才改用 `incremental=False` 全量重建。
 
 日志示例：
 
